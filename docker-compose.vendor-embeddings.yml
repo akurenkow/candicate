@@ -1,0 +1,103 @@
+# Override: lightweight-embeddings вместо embedding-service (для внешних LLM провайдеров).
+#
+# Какой сервис использовать для embedding определяется через LLM_PROVIDER и результат
+# проверки API (scripts/check_llm_vendor.py), а не через EMBEDDING_SERVICE_URL в .env:
+#   - LLM_PROVIDER=local или fallback на local (нет валидного ключа) → загружается
+#     docker-compose.ollama.yml → используется embedding-service.
+#   - LLM vendor resolved и API key валиден → загружается этот override →
+#     используется lightweight-embeddings.
+# build.py при запуске вызывает check_llm_vendor и подключает нужный overlay.
+# В .env задавать EMBEDDING_SERVICE_URL не требуется.
+
+services:
+  lightweight-embeddings:
+    build: 
+      context: ./services/lightweight-embeddings
+      dockerfile: Dockerfile
+      args:
+        USE_OFFLINE_TORCH: ${USE_OFFLINE_TORCH:-0}
+    image: rag-lightweight-embeddings:latest
+    container_name: rag-lightweight-embeddings
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "8005:8000"
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+    environment:
+      MODEL_NAME: ${LIGHTWEIGHT_EMBED_MODEL:-BAAI/bge-m3}
+      EMBEDDING_DIMENSION: ${LIGHTWEIGHT_EMBED_DIMENSION:-1024}
+      BATCH_SIZE: 32
+      HF_HOME: /root/.cache/huggingface
+      HF_TOKEN: ${HF_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  retrieval-service:
+    environment:
+      EMBEDDING_SERVICE_URL: http://lightweight-embeddings:8000
+
+  conversation-manager:
+    environment:
+      EMBEDDING_SERVICE_URL: http://lightweight-embeddings:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      clearing-service:
+        condition: service_healthy
+      translation-service:
+        condition: service_healthy
+      lightweight-embeddings:
+        condition: service_healthy
+
+  prometheus:
+    depends_on:
+      - lightweight-embeddings
+
+  ingestion-service:
+    environment:
+      EMBEDDING_SERVICE_URL: http://lightweight-embeddings:8000
+    depends_on:
+      lightweight-embeddings:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      translation-service:
+        condition: service_healthy
+
+  ingestion-worker:
+    environment:
+      EMBEDDING_SERVICE_URL: http://lightweight-embeddings:8000
+    depends_on:
+      lightweight-embeddings:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      translation-service:
+        condition: service_healthy

@@ -1,0 +1,57 @@
+# monitoring/prometheus/prometheus.yml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:8000']
+    metrics_path: /metrics
+
+  - job_name: 'conversation-manager'
+    static_configs:
+      - targets: ['conversation-manager:8000']
+    metrics_path: /metrics
+
+  - job_name: 'retrieval-service'
+    static_configs:
+      - targets: ['retrieval-service:8000']
+    metrics_path: /metrics
+
+  - job_name: 'generation-service'
+    static_configs:
+      - targets: ['generation-service:8000']
+    metrics_path: /metrics
+
+  # embedding-service: target зависит от режима (local vs vendor)
+  # local → embedding-service:8000 (rag-embedding-service)
+  # vendor → lightweight-embeddings:8000
+  # Конфигурация переопределяется через docker-compose overrides
+  - job_name: 'embedding-service'
+    static_configs:
+      - targets: ['embedding-service:8000']
+    metrics_path: /metrics
+
+  - job_name: 'translation-service'
+    static_configs:
+      - targets: ['translation-service:8000']
+    metrics_path: /metrics
+
+  - job_name: 'ingestion-service'
+    static_configs:
+      - targets: ['ingestion-service:8000']
+    metrics_path: /metrics
+
+  - job_name: 'authz-service'
+    static_configs:
+      - targets: ['authz-service:8000']
+    metrics_path: /metrics
+
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:9464']

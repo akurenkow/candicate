@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+
+# Установка системных зависимостей (если нужны)
+RUN apt-get update && apt-get install -y --no-install-recommends gcc curl wget build-essential && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Копирование и установка общих зависимостей
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# (Опционально) копирование общего кода, если он нужен во всех сервисах
+COPY common/ /app/common/

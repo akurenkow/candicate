@@ -1,0 +1,112 @@
+%% MODULE DECOMPOSITION AND CONTRACTS
+%% Source: architecture/CONTRACT_REGISTRY.md
+
+classDiagram
+    class API_Gateway {
+        <<SYS-01>>
+        +CTR-01 External API REST/JSON
+        +provides CTR-01
+        +calls CTR-02, CTR-03, CTR-04
+    }
+    class Conversation_Manager {
+        <<SYS-02>>
+        +CTR-05 process_query, get_history, save_message
+        +provides CTR-02, CTR-05
+        +calls CTR-06, CTR-07, CTR-08, CTR-09, CTR-30, CTR-32
+    }
+    class Retrieval_Service {
+        <<SYS-03>>
+        +CTR-10 search(query, filters, top_k)
+        +CTR-31 response chunks[]
+        +provides CTR-06, CTR-10, CTR-31
+        +calls CTR-11, CTR-12, CTR-13
+    }
+    class Generation_Service {
+        <<SYS-04>>
+        +CTR-14 generate, generate_clarification
+        +provides CTR-07, CTR-14
+    }
+    class Embedding_Service {
+        <<SYS-05>>
+        +CTR-15 embed, embed_batch
+        +provides CTR-11, CTR-15, CTR-17
+    }
+    class Ingestion_Service {
+        <<SYS-06>>
+        +consumes CTR-03, CTR-16
+        +provides CTR-16 consumer
+        +calls CTR-17, CTR-18, CTR-19, CTR-25
+    }
+    class Translation_Service {
+        <<SYS-15>>
+        +POST /translate
+        +provides CTR-25
+        +calls CTR-26, CTR-27, CTR-28
+    }
+    class Clearing_Service {
+        <<SYS-16>>
+        +CTR-30 POST /preprocess
+        +provides CTR-30
+    }
+    class Telegram_Bot {
+        <<SYS-17>>
+        +consumes CTR-34, CTR-35
+        +calls CTR-34 (API Gateway), CTR-35 (PostgreSQL)
+    }
+    class AuthZ_Service {
+        <<SYS-07>>
+        +CTR-20 check_access(user_id, doc_id, action)
+        +provides CTR-04, CTR-08, CTR-13, CTR-20
+        +calls CTR-21
+    }
+    class RabbitMQ {
+        <<SYS-08>>
+        +CTR-03, CTR-16 queues
+    }
+    class PostgreSQL {
+        <<SYS-09>>
+        +CTR-09, CTR-19, CTR-21
+    }
+    class Qdrant {
+        <<SYS-10>>
+        +CTR-12, CTR-18 vector store
+    }
+    class Prometheus {
+        <<SYS-12>>
+        +CTR-22 scrape /metrics
+    }
+    class Grafana {
+        <<SYS-13>>
+        +CTR-24 datasources
+    }
+    class Loki {
+        <<SYS-14>>
+        +CTR-23 log ingestion
+    }
+    class Redis {
+        <<SYS-11>>
+        +CTR-27, CTR-32 cache
+    }
+
+    API_Gateway --> Conversation_Manager : CTR-02
+    API_Gateway --> RabbitMQ : CTR-03
+    API_Gateway --> AuthZ_Service : CTR-04
+    Conversation_Manager --> Retrieval_Service : CTR-06
+    Conversation_Manager --> Generation_Service : CTR-07
+    Conversation_Manager --> Clearing_Service : CTR-30
+    Telegram_Bot --> API_Gateway : CTR-34
+    Telegram_Bot --> PostgreSQL : CTR-35
+    Conversation_Manager --> AuthZ_Service : CTR-08
+    Conversation_Manager --> PostgreSQL : CTR-09
+    Conversation_Manager ..> Redis : CTR-32
+    Retrieval_Service --> Embedding_Service : CTR-11
+    Retrieval_Service --> Qdrant : CTR-12
+    Retrieval_Service --> AuthZ_Service : CTR-13
+    Ingestion_Service --> RabbitMQ : CTR-16
+    Ingestion_Service --> Translation_Service : CTR-25
+    Ingestion_Service --> Embedding_Service : CTR-17
+    Ingestion_Service --> Qdrant : CTR-18
+    Ingestion_Service --> PostgreSQL : CTR-19
+    AuthZ_Service --> PostgreSQL : CTR-21
+    Grafana --> Prometheus : CTR-24
+    Grafana --> Loki : CTR-24

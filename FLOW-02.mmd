@@ -1,0 +1,54 @@
+%% FLOW-02: Ingestion (загрузка резюме)
+%% Source: architecture/KNOWLEDGE_MAP.md — Flows
+%% Updated: 2026-02-15 - added block-wise translation and semantic parsing with metadata
+
+sequenceDiagram
+    autonumber
+    participant Client
+    participant Gateway as API Gateway
+    participant RabbitMQ
+    participant Ingestion as Ingestion Service
+    participant Translation as Translation Service
+    participant Embedding as Embedding Service
+    participant Qdrant
+    participant DB as PostgreSQL
+
+    Client->>Gateway: upload document
+    Gateway->>RabbitMQ: publish upload_document
+    RabbitMQ->>Ingestion: consume command
+    
+    Note over Ingestion: split_resume_sections(general, experience)
+    Note over Ingestion: split_experience_by_companies()
+    
+    par Parallel translation (up to MAX_THREAD_WORKERS)
+        Ingestion->>Translation: POST /translate (general ru→en)
+        Translation-->>Ingestion: general_en
+    and
+        Ingestion->>Translation: POST /translate (company 1 ru→en)
+        Translation-->>Ingestion: company_1_en
+    and
+        Ingestion->>Translation: POST /translate (company 2 ru→en)
+        Translation-->>Ingestion: company_2_en
+    and
+        Ingestion->>Translation: POST /translate (company N ru→en)
+        Translation-->>Ingestion: company_N_en
+    end
+    
+    Note over Ingestion: Reconstruct: general + companies
+    Note over Ingestion: Semantic parsing: extract metadata<br/>(company_name, date_range, project_name,<br/>project_domain, role)
+    
+    Ingestion->>DB: begin transaction, delete old version
+    Ingestion->>DB: save document
+    
+    Note over Ingestion: chunks_from_semantic_resume()<br/>with metadata
+    
+    loop chunks with metadata
+        Ingestion->>Embedding: embed_batch(chunks)
+        Embedding-->>Ingestion: vectors
+    end
+    
+    Ingestion->>Qdrant: write vectors + metadata payload
+    Ingestion->>DB: write chunks + metadata
+    Ingestion->>DB: commit
+    Ingestion->>RabbitMQ: publish ingestion_results
+    Ingestion-->>Client: (callback/optional) success

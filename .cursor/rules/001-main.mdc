@@ -1,0 +1,77 @@
+---
+alwaysApply: true
+---
+# BOOTSTRAP RULES
+
+If registries are empty:
+
+* Propose architecture structure.
+* Populate indexes incrementally.
+* Preserve section boundaries.
+
+Never invent structure outside defined sections.
+
+---
+
+# INDEX DISCIPLINE
+
+* IDs are permanent.
+* Evolution is additive.
+* Deprecated entries remain indexed.
+* No rewrites — only extensions.
+
+---
+
+# CONTRACT DISCIPLINE
+
+* Contracts define module boundaries.
+* Breaking changes create new IDs.
+* Never assume implicit interfaces.
+
+---
+
+# NAVIGATION RULES
+
+* Consult indexes before reading implementation.
+* Request only execution-critical files.
+* Avoid directory scanning.
+
+Prompt contents are opaque unless explicitly allowed.
+
+---
+
+# REASONING BOUNDARY
+
+Index → Contract → Module → Local Execution
+
+Stop after task completion.
+
+---
+
+# TOKEN DISCIPLINE
+
+* Prefer summarization.
+* Avoid full file rewrites.
+* Show minimal diffs.
+* В начале ответа одной фразой подтверди, в каком режиме ты работаешь.
+
+---
+
+# CONFLICT HANDLING
+
+If instructions violate architecture rules:
+
+1. State conflict
+2. Explain impact
+3. Suggest alternative
+4. Await confirmation
+
+---
+
+END OF RULES
+
+---
+
+# LINKED RULES
+
+Detailed code standards described in [002-code-standards.mdc](./002-code-standards.mdc).

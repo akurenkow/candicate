@@ -1,0 +1,159 @@
+# Override: добавляет Ollama, ollama-pull и rag-embedding-service для local режима.
+# Используется когда scripts/check_llm_vendor.py вернул 1 (ключ невалидный или LLM_PROVIDER=local).
+# Запуск: docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rag-ollama
+    restart: unless-stopped
+    environment:
+      OLLAMA_NUM_GPU: "1"
+      OLLAMA_GPU_LAYERS: "-1"
+    networks:
+      - backend
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: rag-ollama-pull
+    restart: "no"
+    entrypoint: ["/bin/sh"]
+    networks:
+      - backend
+    env_file:
+      - .env
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    command:
+      - -c
+      - |
+        sleep 10
+        for m in "$$OLLAMA_CHAT_MODEL" "$$OLLAMA_EMBED_MODEL" "$$OLLAMA_TRANSLATE_MODEL" "$$FALLBACK_MODEL"; do
+          [ -n "$$m" ] && ollama pull "$$m" || true
+        done
+    depends_on:
+      ollama:
+        condition: service_started
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "1"
+
+  embedding-service:
+    build: ./services/embedding-service
+    image: rag-embedding-service:latest
+    container_name: rag-embedding-service
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "8005:8000"
+    environment:
+      SERVICE_NAME: embedding-service
+      SERVICE_PORT: 8000
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-mxbai-embed-large-v1}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
+      METRICS_PORT: 8000
+      OTEL_SERVICE_NAME: embedding-service
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+      ollama-pull:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  generation-service:
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+      ollama-pull:
+        condition: service_completed_successfully
+
+  translation-service:
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+      ollama-pull:
+        condition: service_completed_successfully
+
+  translation-worker:
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+      ollama-pull:
+        condition: service_completed_successfully
+
+  retrieval-service:
+    environment:
+      EMBEDDING_SERVICE_URL: http://embedding-service:8000
+
+  prometheus:
+    depends_on:
+      - embedding-service
+
+  ingestion-service:
+    environment:
+      EMBEDDING_SERVICE_URL: http://embedding-service:8000
+    depends_on:
+      embedding-service:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      translation-service:
+        condition: service_healthy
+
+  ingestion-worker:
+    environment:
+      EMBEDDING_SERVICE_URL: http://embedding-service:8000
+    depends_on:
+      embedding-service:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      translation-service:
+        condition: service_healthy

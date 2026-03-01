@@ -1,0 +1,14 @@
+# Override для GPU (ingestion-service).
+# Ollama GPU — в docker-compose.ollama-gpu.yml (загружается только при local+--gpu).
+# Использование: ./scripts/compose-up.sh -d --gpu
+# Требования: драйвер NVIDIA на хосте, nvidia-container-toolkit.
+
+services:
+  ingestion-service:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

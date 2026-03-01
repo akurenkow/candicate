@@ -1,0 +1,42 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Dependency files
+site-packages/
+
+# IDE / OS noise
+.vscode/
+.idea/
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Build artifacts
+dist/
+build/
+
+# diagrams
+diagrams/
+
+# big documents
+/tests/data/
+
+hh-applicant-tool/
+
+.pytest_cache/
+
+.env
+services\lightweight-embeddings\wheels\torch-2.6.0+cpu-cp311-cp311-linux_x86_64.whl

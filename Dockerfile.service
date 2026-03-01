@@ -1,0 +1,12 @@
+# Build any service with shared lib. Usage:
+#   docker build --build-arg SVC=api-gateway -f Dockerfile.service .
+# Context must be project root.
+FROM rag-base:latest
+ARG SVC
+COPY shared /app/shared
+COPY external_llm /app/external_llm
+COPY services/${SVC} /app
+WORKDIR /app
+# Service-specific deps (e.g. celery for ingestion-service, translation-service)
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

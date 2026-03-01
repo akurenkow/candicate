@@ -1,0 +1,76 @@
+%% FLOW-01: Query Flow (включая ветку «Уточняющий диалог»)
+%% Source: architecture/KNOWLEDGE_MAP.md — Flows
+
+sequenceDiagram
+    autonumber
+    participant User
+    participant Gateway as API Gateway
+    participant DB as PostgreSQL
+    participant RabbitMQ
+    participant ConvMgr as Conversation Manager
+    participant Clearing as Clearing Service
+    participant Redis
+    participant Translation as Translation Service
+    participant Retrieval as Retrieval Service
+    participant Embedding as Embedding Service
+    participant Qdrant
+    participant Generation as Generation Service
+    participant Ollama
+
+    User->>Gateway: query (validated)
+    Gateway->>DB: create message (queued, user_raw_text)
+    Gateway->>RabbitMQ: publish task (message_id)
+    RabbitMQ->>ConvMgr: consume task
+    ConvMgr->>DB: lock (status=locked, processing_lock)
+    ConvMgr->>DB: get_message
+    DB-->>ConvMgr: message
+    ConvMgr->>Clearing: POST /preprocess(text)
+    Clearing-->>ConvMgr: normalized, validation_result
+    alt BLOCK
+        ConvMgr->>DB: status=completed, assistant_text=fallback, lock=null
+        ConvMgr-->>Gateway: answer
+    else OK
+        ConvMgr->>DB: user_normalized_text
+        opt lang ≠ gen_lang
+            ConvMgr->>Translation: POST /translate
+            Translation-->>ConvMgr: working_query
+        end
+        ConvMgr->>Redis: get_cached(hash(working_query))
+        alt cache hit
+            Redis-->>ConvMgr: assistant_text
+            ConvMgr->>DB: _finalize_lifecycle: save, status=completed, lock=null
+        else cache miss
+            Redis-->>ConvMgr: (none)
+            ConvMgr->>Retrieval: POST /search(query, top_k)
+            Retrieval->>Embedding: embed(query) [or cache]
+            Embedding-->>Retrieval: vector
+            Retrieval->>Qdrant: vector search
+            Qdrant-->>Retrieval: points
+            Retrieval-->>ConvMgr: chunks
+            Note over ConvMgr: 16a: evaluate max score
+            alt no chunks or score < CLARIFY_THRESHOLD
+                ConvMgr->>DB: status=escalated, assistant_text=fallback, lock=null
+            else CLARIFY_THRESHOLD ≤ score < ANSWER_THRESHOLD
+                Note right of ConvMgr: Ветка «Уточняющий диалог» (16b–16e)
+                ConvMgr->>Generation: generate_clarification(original_query, documents, history)
+                Generation->>Ollama: LLM
+                Ollama-->>Generation: clarification question
+                Generation-->>ConvMgr: clarification question
+                ConvMgr->>DB: save_message (clarification), status=completed, lock=null
+                Note over User,ConvMgr: На след. сообщении: уточнённый запрос → повтор с 15
+            else score ≥ ANSWER_THRESHOLD
+                ConvMgr->>Generation: generate(prompt: history + chunks)
+                Generation->>Ollama: LLM request
+                Ollama-->>Generation: response
+                Generation-->>ConvMgr: answer
+                ConvMgr->>Redis: set_cached(hash(working_query), assistant_text)
+                opt user_lang ≠ gen_lang
+                    ConvMgr->>Translation: POST /translate (answer en→user_lang)
+                    Translation-->>ConvMgr: assistant_text_translated
+                end
+                ConvMgr->>DB: _finalize_lifecycle: save, status=completed, lock=null
+            end
+        end
+        ConvMgr-->>Gateway: answer
+    end
+    Gateway-->>User: response

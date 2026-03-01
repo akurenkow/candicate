@@ -1,0 +1,74 @@
+%% SYSTEM CONTEXT (C4 Level 1)
+%% Source: architecture/KNOWLEDGE_MAP.md — Systems, Relations from CONTRACT_REGISTRY
+
+flowchart TD
+    subgraph External["External"]
+        Clients["Clients\n(frontend, HR, candidates)"]
+        Ollama["Ollama\n(LLM)"]
+    end
+
+    subgraph System["Wulf Grinder System"]
+        S01["SYS-01\nAPI Gateway"]
+        S02["SYS-02\nConversation Manager"]
+        S03["SYS-03\nRetrieval Service"]
+        S04["SYS-04\nGeneration Service"]
+        S05["SYS-05\nEmbedding Service"]
+        S06["SYS-06\nIngestion Service"]
+        S15["SYS-15\nTranslation Service"]
+        S16["SYS-16\nClearing Service"]
+        S17["SYS-17\nTelegram Bot"]
+        S07["SYS-07\nAuthZ Service"]
+        S08["SYS-08\nRabbitMQ"]
+        S09["SYS-09\nPostgreSQL"]
+        S10["SYS-10\nQdrant"]
+        S11["SYS-11\nRedis"]
+        S12["SYS-12\nPrometheus"]
+        S13["SYS-13\nGrafana"]
+        S14["SYS-14\nLoki"]
+    end
+
+    Clients -->|REST/JSON CTR-01| S01
+    Clients -.->|Telegram API| S17
+    S17 -->|CTR-34| S01
+    S17 -->|CTR-35| S09
+    S01 -->|CTR-02| S02
+    S01 -->|CTR-03 async| S08
+    S01 -->|CTR-04| S07
+    S08 -->|CTR-16| S06
+    S02 -->|CTR-30| S16
+    S02 -.->|CTR-32 cache| S11
+    S02 -->|CTR-06| S03
+    S02 -->|CTR-07| S04
+    S02 -->|CTR-08| S07
+    S02 -->|CTR-09| S09
+    S03 -->|CTR-11| S05
+    S03 -->|CTR-12| S10
+    S03 -->|CTR-13| S07
+    S04 -->|Ollama| Ollama
+    S05 -->|Ollama, cache| Ollama
+    S05 -.->|cache| S11
+    S06 -->|CTR-25| S15
+    S06 -->|CTR-17| S05
+    S06 -->|CTR-18| S10
+    S06 -->|CTR-19| S09
+    S07 -->|CTR-21| S09
+    S15 -->|CTR-26| Ollama
+    S15 -.->|CTR-27 cache| S11
+    S12 -->|CTR-22 scrape| S01
+    S12 -->|CTR-22| S02
+    S12 -->|CTR-22| S03
+    S12 -->|CTR-22| S04
+    S12 -->|CTR-22| S05
+    S12 -->|CTR-22| S06
+    S12 -->|CTR-22| S15
+    S12 -->|CTR-22| S07
+    S13 -->|CTR-24| S12
+    S13 -->|CTR-24| S14
+    S14 -->|CTR-23 logs| S01
+    S14 -->|CTR-23| S02
+    S14 -->|CTR-23| S03
+    S14 -->|CTR-23| S04
+    S14 -->|CTR-23| S05
+    S14 -->|CTR-23| S06
+    S14 -->|CTR-23| S15
+    S14 -->|CTR-23| S07

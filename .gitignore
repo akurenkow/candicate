@@ -1,0 +1,8 @@
+# файлы и папки, которые не нужно индексировать автоматически
+
+# applicant tool
+hh-applicant-tool/
+tests/data/
+*__pycache__/
+.env
+services\lightweight-embeddings\wheels\torch-2.6.0+cpu-cp311-cp311-linux_x86_64.whl

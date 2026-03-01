@@ -1,0 +1,60 @@
+"""Conversation manager configuration (CTR-09, FLOW-01)."""
+
+import os
+from urllib.parse import quote_plus
+
+
+def get_env(key: str, default: str = "") -> str:
+    return os.getenv(key, default).strip()
+
+
+def _build_database_url() -> str:
+    return "postgresql://{user}:{pw}@{host}:{port}/{db}".format(
+        user=get_env("POSTGRES_USER", "assistant_user"),
+        pw=quote_plus(get_env("POSTGRES_PASSWORD", "strongpassword")),
+        host=get_env("POSTGRES_HOST", "postgres"),
+        port=get_env("POSTGRES_PORT", "5432"),
+        db=get_env("POSTGRES_DB", "assistant"),
+    )
+
+
+if get_env("POSTGRES_HOST") or get_env("POSTGRES_USER"):
+    DATABASE_URL = _build_database_url()
+elif get_env("DATABASE_URL"):
+    DATABASE_URL = get_env("DATABASE_URL")
+else:
+    DATABASE_URL = get_env("DATABASE_URL", "postgresql://assistant_user:strongpassword@postgres:5432/assistant")
+
+RABBITMQ_URL = get_env("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+RAG_QUEUE = get_env("RAG_QUEUE", "rag_tasks")
+LOCK_TTL_SECONDS = int(os.getenv("LOCK_TTL_SECONDS", "300"))
+
+def _service_url(env_key: str, default: str) -> str:
+    v = get_env(env_key, default)
+    if not v or "localhost" in v.split("//")[-1].split("/")[0].split(":")[0].lower():
+        return default
+    return v
+
+
+CLEARING_SERVICE_URL = _service_url("CLEARING_SERVICE_URL", "http://clearing-service:8000")
+RETRIEVAL_SERVICE_URL = _service_url("RETRIEVAL_SERVICE_URL", "http://retrieval-service:8000")
+GENERATION_SERVICE_URL = _service_url("GENERATION_SERVICE_URL", "http://generation-service:8000")
+FALLBACK_RESPONSE = get_env("FALLBACK_RESPONSE", "Sorry, I will respond you a bit later.")
+RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "10"))
+MODEL_CONTEXT_LIMIT = int(os.getenv("MODEL_CONTEXT_LIMIT", "4096"))
+
+CLARIFY_THRESHOLD = float(os.getenv("CLARIFY_THRESHOLD", "0.35"))
+ANSWER_THRESHOLD = float(os.getenv("ANSWER_THRESHOLD", "0.65"))
+MAX_CLARIFICATION_ATTEMPTS = int(os.getenv("MAX_CLARIFICATION_ATTEMPTS", "2"))
+
+TRANSLATION_SERVICE_URL = _service_url("TRANSLATION_SERVICE_URL", "http://translation-service:8000")
+MODEL_WORKING_LANGUAGE = get_env("MODEL_WORKING_LANGUAGE", "en").lower()
+TRANSLATION_RETRY_LIMIT = int(os.getenv("TRANSLATION_RETRY_LIMIT", "3"))
+TRANSLATION_TIMEOUT = float(os.getenv("TRANSLATION_TIMEOUT", "60.0"))
+
+EMBEDDING_SERVICE_URL = _service_url("EMBEDDING_SERVICE_URL", "http://embedding-service:8000")
+RAG_LABELS_PATH = get_env("RAG_LABELS_PATH", "/app/prompts/rag-labels.txt")
+POSTPROCESS_TRANSLATION_RETRY_LIMIT = int(os.getenv("POSTPROCESS_TRANSLATION_RETRY_LIMIT", "3"))
+POSTPROCESS_FIDELITY_THRESHOLD = float(os.getenv("POSTPROCESS_FIDELITY_THRESHOLD", "0.85"))
+POSTPROCESS_FIDELITY_THRESHOLD_CROSSLINGUAL = float(os.getenv("POSTPROCESS_FIDELITY_THRESHOLD_CROSSLINGUAL", "0.62"))
+POSTPROCESS_EMBED_TIMEOUT = float(os.getenv("POSTPROCESS_EMBED_TIMEOUT", "30.0"))

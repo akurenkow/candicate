@@ -1,0 +1,15 @@
+# GPU для Ollama. Только вместе с docker-compose.ollama.yml.
+# Загружается скриптом compose-up при local + --gpu.
+
+services:
+  ollama:
+    environment:
+      OLLAMA_NUM_GPU: "1"
+      OLLAMA_GPU_LAYERS: "-1"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

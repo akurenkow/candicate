@@ -1,0 +1,54 @@
+# Core
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+
+# Metrics
+prometheus-client==0.19.0
+
+# OpenTelemetry (optional, enabled via OTEL_ENABLED=true)
+opentelemetry-api==1.28.0
+opentelemetry-sdk==1.28.0
+opentelemetry-exporter-otlp-proto-http==1.28.0
+opentelemetry-instrumentation-fastapi==0.49b0
+opentelemetry-instrumentation-requests==0.49b0
+opentelemetry-instrumentation-httpx==0.49b0
+opentelemetry-instrumentation-psycopg2==0.49b0
+opentelemetry-instrumentation-asyncpg==0.49b0
+
+# Databases
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+alembic==1.12.1
+redis==5.0.1
+qdrant-client==1.16.2
+
+# Message Queue
+aio-pika==9.3.0
+
+# HTTP Client
+httpx==0.25.1
+aiohttp==3.9.1
+
+# LLM / Embeddings (OpenAI, DeepSeek, Ollama via external_llm)
+openai>=1.0.0          # OpenAI SDK + DeepSeek/Ollama (OpenAI-compatible)
+httpx>=0.25.0          # HTTP client for Ollama fallback
+
+# Document parsing (ingestion)
+pypdf==4.0.0
+python-docx==1.1.0
+
+# Language detection (query pipeline)
+langdetect==1.0.9
+
+# Utilities
+python-multipart==0.0.6  # для загрузки файлов
+tenacity==8.2.3          # для повторных попыток
+loguru==0.7.2            # улучшенное логирование (можно заменить на стандартное logging)
+orjson==3.9.10           # быстрая сериализация JSON
+
+# Testing
+pytest-cov==7.0.0

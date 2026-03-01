@@ -1,0 +1,863 @@
+# docker-compose.yml (базовый состав; Ollama в docker-compose.ollama.yml)
+# Общая сеть для всех сервисов
+networks:
+  backend:
+    driver: bridge
+
+# Тома для сохранения данных
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  rabbitmq_data:
+  ollama_models:
+  huggingface_cache:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  tempo_data:
+services:
+  # ============================================
+  # ИНФРАСТРУКТУРНЫЕ СЕРВИСЫ
+  # ============================================
+
+  # ----- PostgreSQL (история диалогов, документы, политики) -----
+  postgres:
+    image: postgres:14
+    container_name: rag-postgres
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "5432:5432"  # проброс для локального подключения (можно закомментировать)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/initdb:/docker-entrypoint-initdb.d:ro
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-assistant_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-assistant}
+      POSTGRES_TEST_DB: ${POSTGRES_TEST_DB:-headcracker_test}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-assistant_user} -d ${POSTGRES_DB:-assistant}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=768MB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.7
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----- Redis (кэш эмбеддингов и сессий) -----
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "6379:6379"  # проброс для локального подключения
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----- Qdrant (векторная база данных) -----
+  qdrant:
+    image: qdrant/qdrant:v1.16.2
+    container_name: rag-qdrant
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "6335:6333"   # HTTP API
+      - "6336:6334"   # gRPC  
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__LOG_LEVEL: INFO
+    # healthcheck:
+    #   test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/readyz"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----- RabbitMQ (очереди для асинхронных задач) -----
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: rag-rabbitmq
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - rabbitmq_data:/etc/rabbitmq/conf.d/  # для кастомных конфигов
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_DEFAULT_VHOST: /
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbit log_levels [{connection,error}]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Ollama и ollama-pull вынесены в docker-compose.ollama.yml.
+  # Подключаются при проверке API (scripts/check_llm_vendor.py) — если ключи невалидны.
+
+  # ----- Prometheus (метрики) -----
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: rag-prometheus
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    depends_on:
+      - api-gateway
+      - conversation-manager
+      - retrieval-service
+      - generation-service
+      - ingestion-service
+      - translation-service
+      - authz-service
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----- Loki (логи) -----
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: rag-loki
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/local-config.yml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yml
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----- Grafana Tempo (trace storage) -----
+  tempo:
+    image: grafana/tempo:2.3.1
+    container_name: rag-tempo
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "3200:3200"
+    volumes:
+      - ./observability/tempo-config.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/tmp/tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----- OpenTelemetry Collector -----
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    depends_on:
+      - tempo
+    container_name: rag-otel-collector
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "9464:9464"   # Prometheus exporter
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    command: ["--config=/etc/otelcol/config.yaml"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----- Grafana (визуализация) -----
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: rag-grafana
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    depends_on:
+      - prometheus
+      - loki
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # МИКРОСЕРВИСЫ PYTHON (RAG ядро)
+  # ============================================
+
+  # ----- API Gateway (точка входа) -----
+  api-gateway:
+    build: ./services/api-gateway
+    image: rag-api-gateway:latest
+    container_name: rag-api-gateway
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "8001:8000"  # внешний порт 8001 -> внутренний 8000
+    environment:
+      SERVICE_NAME: api-gateway
+      SERVICE_PORT: 8000
+      
+      # URL внутренних сервисов
+      CONVERSATION_MANAGER_URL: http://conversation-manager:8000
+      INGESTION_SERVICE_URL: http://ingestion-service:8000
+      AUTHZ_SERVICE_URL: http://authz-service:8000
+      
+      # Инфраструктура
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
+      UPLOAD_QUEUE: document_uploads
+      # Список внешних ID пользователей, допущенных к загрузке резюме (через запятую)
+      ALLOWED_UPLOAD_USER_IDS: ${ALLOWED_UPLOAD_USER_IDS:-417554679}
+      ALLOW_E2E_UPLOAD: ${ALLOW_E2E_UPLOAD:-}
+      
+      # Метрики и наблюдаемость
+      METRICS_PORT: 8000
+      OTEL_SERVICE_NAME: api-gateway
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318  # если добавите Jaeger позже
+      
+      # Rate limiting и безопасность
+      RATE_LIMIT_REQUESTS: "100"
+      RATE_LIMIT_PERIOD: "60"
+      MAX_REQUEST_SIZE_MB: "10"
+      
+      # CORS (для разработки)
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:8001"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Conversation Manager (оркестратор диалогов) -----
+  conversation-manager:
+    build: ./services/conversation-manager
+    image: rag-conversation-manager:latest
+    container_name: rag-conversation-manager
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "8002:8000"  # внутренний порт, можно не пробрасывать наружу
+    volumes:
+      - ./prompts:/app/prompts:ro
+    environment:
+      SERVICE_NAME: conversation-manager
+      SERVICE_PORT: 8000
+      
+      # Зависимости (POSTGRES_* для корректного quote пароля с спецсимволами)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-assistant_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-assistant}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379/1  # сессии + response cache
+      RESPONSE_CACHE_TTL_SEC: "3600"
+      
+      # URL внутренних сервисов (имена хостов — Docker service names)
+      CLEARING_SERVICE_URL: http://clearing-service:8000
+      TRANSLATION_SERVICE_URL: http://translation-service:8000
+      MODEL_WORKING_LANGUAGE: ${MODEL_WORKING_LANGUAGE:-en}
+      RETRIEVAL_SERVICE_URL: http://retrieval-service:8000
+      GENERATION_SERVICE_URL: http://generation-service:8000
+      EMBEDDING_SERVICE_URL: http://embedding-service:8000
+      AUTHZ_SERVICE_URL: http://authz-service:8000
+      
+      # Параметры RAG
+      ANSWER_THRESHOLD: 0.7
+      CLARIFY_THRESHOLD: 0.4
+      MAX_HISTORY_TOKENS: 2000
+      DEFAULT_TOP_K: ${TOP_K:-5}
+      TOP_K: ${TOP_K:-5}
+      RAG_LABELS_PATH: /app/prompts/rag-labels.txt
+      
+      # Метрики
+      METRICS_PORT: 8000
+      OTEL_SERVICE_NAME: conversation-manager
+      
+      # Обработка ошибок
+      CIRCUIT_BREAKER_ENABLED: "true"
+      CIRCUIT_BREAKER_THRESHOLD: "5"
+      CIRCUIT_BREAKER_TIMEOUT_SEC: "60"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      clearing-service:
+        condition: service_healthy
+      translation-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Retrieval Service (поиск документов) -----
+  retrieval-service:
+    build: ./services/retrieval-service
+    image: rag-retrieval-service:latest
+    container_name: rag-retrieval-service
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "8003:8000"
+    environment:
+      SERVICE_NAME: retrieval-service
+      SERVICE_PORT: 8000
+      
+      # Хранилища
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: documents
+      REDIS_URL: redis://redis:6379/2  # кэш результатов поиска
+      
+      # Внутренние сервисы
+      EMBEDDING_SERVICE_URL: http://embedding-service:8000
+      AUTHZ_SERVICE_URL: http://authz-service:8000
+      
+      # Параметры поиска
+      DEFAULT_TOP_K: ${TOP_K:-10}
+      TOP_K: ${TOP_K:-10}
+      SEMANTIC_WEIGHT: 0.7
+      KEYWORD_WEIGHT: 0.3
+      ENABLE_HYBRID_SEARCH: "true"
+      
+      # Метрики
+      METRICS_PORT: 8000
+      OTEL_SERVICE_NAME: retrieval-service
+    depends_on:
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Generation Service (генерация через LLM) -----
+  generation-service:
+    build: ./services/generation-service
+    image: rag-generation-service:latest
+    container_name: rag-generation-service
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "8004:8000"
+    volumes:
+      - ./prompts:/app/prompts:ro
+    environment:
+      SERVICE_NAME: generation-service
+      SERVICE_PORT: 8000
+      
+      # LLM провайдер: auto | openai | deepseek | gemini | local (external_llm factory)
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      FAVORITE_LLM_PROVIDER: ${FAVORITE_LLM_PROVIDER:-deepseek}
+      OLLAMA_URL: http://ollama:11434
+      DEFAULT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5-coder}
+      FALLBACK_MODEL: ${FALLBACK_MODEL:-tinyllama}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
+      OPENAI_EMBED_MODEL: ${OPENAI_EMBED_MODEL:-gpt-4o-mini}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_CHAT_MODEL: ${DEEPSEEK_CHAT_MODEL:-deepseek-chat}
+      DEEPSEEK_EMBED_MODEL: ${DEEPSEEK_EMBED_MODEL:-deepseek-embedding-v2}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_CHAT_MODEL: ${GEMINI_CHAT_MODEL:-gemini-2.0-flash}
+      GEMINI_EMBED_MODEL: ${GEMINI_EMBED_MODEL:-text-embedding-004}
+      
+      # Параметры генерации
+      MAX_TOKENS: 512
+      TEMPERATURE: 0.7
+      TOP_P: 0.9
+      FREQUENCY_PENALTY: 0.1
+      PRESENCE_PENALTY: 0.1
+      
+      # Кэширование
+      REDIS_URL: redis://redis:6379/3  # кэш ответов
+      ENABLE_RESPONSE_CACHING: "true"
+      CACHE_TTL_SEC: 3600
+      RETRY_TIGHTEN_SUFFIX_PATH: /app/prompts/retry-tighten-suffix.txt
+      
+      # Метрики
+      METRICS_PORT: 8000
+      OTEL_SERVICE_NAME: generation-service
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Translation Service (LLM-перевод через Ollama) -----
+  translation-service:
+    build: ./services/translation-service
+    image: rag-translation-service:latest
+    container_name: rag-translation-service
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "8008:8000"
+    volumes:
+      - ./prompts:/app/prompts:ro
+    environment:
+      SERVICE_NAME: translation-service
+      SERVICE_PORT: 8000
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      FAVORITE_LLM_PROVIDER: ${FAVORITE_LLM_PROVIDER:-deepseek}
+      OLLAMA_URL: http://ollama:11434
+      DEFAULT_MODEL: ${OLLAMA_TRANSLATE_MODEL:-translategemma}
+      FALLBACK_MODEL: ${FALLBACK_MODEL:-tinyllama}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      REDIS_URL: redis://redis:6379/8
+      ENABLE_CACHE: "true"
+      CACHE_TTL_SEC: 86400
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
+      TRANSLATION_TASKS_QUEUE: translation_tasks
+      TRANSLATION_RESULTS_QUEUE: translation_results
+      CELERY_BROKER_URL: redis://redis:6379/9
+      TRANSLATE_PROMPT_PATH_RU_EN: /app/prompts/translate-ru-en.txt
+      TRANSLATE_PROMPT_PATH_EN_RU: /app/prompts/translate-en-ru.txt
+      DEFAULT_TEMPERATURE: "0.3"
+      METRICS_PORT: 8000
+      OTEL_SERVICE_NAME: translation-service
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Translation Worker (Celery: обработка очереди translation_tasks) -----
+  translation-worker:
+    image: rag-translation-service:latest
+    container_name: rag-translation-worker
+    restart: unless-stopped
+    networks:
+      - backend
+    volumes:
+      - ./prompts:/app/prompts:ro
+    command: ["celery", "-A", "celery_app", "worker", "-l", "info"]
+    environment:
+      SERVICE_NAME: translation-worker
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      OLLAMA_URL: http://ollama:11434
+      DEFAULT_MODEL: ${OLLAMA_TRANSLATE_MODEL:-translategemma}
+      FALLBACK_MODEL: ${FALLBACK_MODEL:-tinyllama}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      REDIS_URL: redis://redis:6379/8
+      ENABLE_CACHE: "true"
+      CACHE_TTL_SEC: 86400
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
+      TRANSLATION_TASKS_QUEUE: translation_tasks
+      TRANSLATION_RESULTS_QUEUE: translation_results
+      CELERY_BROKER_URL: redis://redis:6379/9
+      TRANSLATE_PROMPT_PATH_RU_EN: /app/prompts/translate-ru-en.txt
+      TRANSLATE_PROMPT_PATH_EN_RU: /app/prompts/translate-en-ru.txt
+      DEFAULT_TEMPERATURE: "0.3"
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Embedding Service (НЕ в base, переопределяется в ollama.yml или vendor-embeddings.yml) -----
+  # Local: rag-embedding-service (docker-compose.ollama.yml)
+  # Vendor: lightweight-embeddings (docker-compose.vendor-embeddings.yml)
+
+  # ----- Ingestion Service (загрузка и индексация документов) -----
+  ingestion-service:
+    build: ./services/ingestion-service
+    image: rag-ingestion-service:latest
+    container_name: rag-ingestion-service
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "8006:8000"
+    environment:
+      SERVICE_NAME: ingestion-service
+      SERVICE_PORT: 8000
+      
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-assistant_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-assistant}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: documents
+      REDIS_URL: redis://redis:6379/5
+      CELERY_BROKER_URL: redis://redis:6379/7
+      
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
+      UPLOAD_QUEUE: document_uploads
+      RESULT_QUEUE: ingestion_results
+      
+      EMBEDDING_SERVICE_URL: http://embedding-service:8000
+      TRANSLATION_SERVICE_URL: http://translation-service:8000
+      
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
+      OLLAMA_CHUNK_MAX_SIZE: ${OLLAMA_CHUNK_MAX_SIZE:-512}
+      OLLAMA_CHUNK_OVERLAP: ${OLLAMA_CHUNK_OVERLAP:-50}
+      CHUNK_SIZE: ${OLLAMA_CHUNK_MAX_SIZE:-512}
+      CHUNK_OVERLAP: ${OLLAMA_CHUNK_OVERLAP:-50}
+      MAX_DOCUMENT_PART_CHARS: ${MAX_DOCUMENT_PART_CHARS:-0}
+      MAX_THREAD_WORKERS: ${MAX_THREAD_WORKERS:-4}
+      SUPPORTED_FILE_TYPES: pdf,docx,txt,md
+      MAX_FILE_SIZE_MB: 25
+      
+      ENABLE_VERSIONING: "true"
+      KEEP_VERSIONS: 5
+      
+      METRICS_PORT: 8000
+      OTEL_SERVICE_NAME: ingestion-service
+      
+      WORKER_CONCURRENCY: 4
+      MAX_RETRIES: 3
+      RETRY_DELAY_SEC: 5
+      
+      TRANSLATE_TO_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      translation-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Ingestion Worker (Celery: эмбеддинг, запись — не блокирует ingestion-service) -----
+  ingestion-worker:
+    image: rag-ingestion-service:latest
+    container_name: rag-ingestion-worker
+    restart: unless-stopped
+    networks:
+      - backend
+    command: ["celery", "-A", "celery_app", "worker", "-l", "info"]
+    environment:
+      SERVICE_NAME: ingestion-worker
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-assistant_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-assistant}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: documents
+      REDIS_URL: redis://redis:6379/5
+      CELERY_BROKER_URL: redis://redis:6379/7
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
+      UPLOAD_QUEUE: document_uploads
+      RESULT_QUEUE: ingestion_results
+      EMBEDDING_SERVICE_URL: http://embedding-service:8000
+      TRANSLATION_SERVICE_URL: http://translation-service:8000
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
+      OLLAMA_CHUNK_MAX_SIZE: ${OLLAMA_CHUNK_MAX_SIZE:-512}
+      OLLAMA_CHUNK_OVERLAP: ${OLLAMA_CHUNK_OVERLAP:-50}
+      CHUNK_SIZE: ${OLLAMA_CHUNK_MAX_SIZE:-512}
+      CHUNK_OVERLAP: ${OLLAMA_CHUNK_OVERLAP:-50}
+      MAX_DOCUMENT_PART_CHARS: ${MAX_DOCUMENT_PART_CHARS:-0}
+      MAX_THREAD_WORKERS: ${MAX_THREAD_WORKERS:-4}
+      SUPPORTED_FILE_TYPES: pdf,docx,txt,md
+      MAX_FILE_SIZE_MB: 25
+      TRANSLATE_TO_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      translation-service:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- AuthZ Service (авторизация и права доступа) -----
+  authz-service:
+    build: ./services/authz-service
+    image: rag-authz-service:latest
+    container_name: rag-authz-service
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "8007:8000"
+    environment:
+      SERVICE_NAME: authz-service
+      SERVICE_PORT: 8000
+      
+      # База данных
+      DATABASE_URL: postgresql://${POSTGRES_USER:-assistant_user}:${POSTGRES_PASSWORD:-strongpassword}@postgres:5432/${POSTGRES_DB:-assistant}
+      
+      # Кэширование прав
+      REDIS_URL: redis://redis:6379/6
+      ENABLE_PERMISSION_CACHE: "true"
+      PERMISSION_CACHE_TTL_SEC: 300  # 5 минут
+      
+      # Политики
+      POLICY_ENGINE: rbac  # rbac или opa
+      DEFAULT_POLICY: deny
+      
+      # Метрики
+      METRICS_PORT: 8000
+      OTEL_SERVICE_NAME: authz-service
+      
+      # Параметры проверки
+      MAX_ROLES_PER_USER: 10
+      MAX_PERMISSIONS_PER_ROLE: 50
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Telegram Bot -----
+  telegram-bot:
+    build: ./services/telegram-bot
+    image: rag-telegram-bot:latest
+    container_name: rag-telegram-bot
+    restart: unless-stopped
+    networks:
+      - backend
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      ALLOWED_UPLOAD_USER_IDS: ${ALLOWED_UPLOAD_USER_IDS:-}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-assistant_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-assistant}
+      BASE_API_URL: http://api-gateway:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api-gateway:
+        condition: service_started
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Clearing Service -----
+  clearing-service:
+    build: ./services/clearing-service
+    image: rag-clearing-service:latest
+    container_name: rag-clearing-service
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "8009:8000"
+    environment:
+      SERVICE_NAME: clearing-service
+      SERVICE_PORT: 8000
+      METRICS_PORT: 8000
+      OTEL_SERVICE_NAME: clearing-service
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+# ============================================
+# VOLUMES (объявлены в части 1)
+# ============================================
+# volumes уже объявлены выше в части 1
+# postgres_data, redis_data, qdrant_data, 
+# rabbitmq_data, prometheus_data, grafana_data, loki_data
+
+# ============================================
+# NETWORKS (объявлены в части 1)
+# ============================================
+# backend уже объявлен выше

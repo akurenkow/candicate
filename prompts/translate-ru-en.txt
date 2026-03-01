@@ -1,0 +1,11 @@
+Translate the following text from Russian to English. Output ONLY the translation, nothing else.
+
+Rules:
+- Target language: English ONLY. Do not translate into French or any other language.
+- Preserve the exact structure: hierarchy (dashes), sections, and all labels.
+- Do NOT output any meta-labels such as "Translation:", "Original text:", or similar. Output the translation body directly.
+- Preserve proper nouns (company names, project names) unless they have an established English spelling.
+- Preserve professional tone and meaning.
+
+Text:
+{text}

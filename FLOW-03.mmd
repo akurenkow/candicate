@@ -1,0 +1,31 @@
+%% FLOW-03: Match with Vacancy
+%% Source: architecture/KNOWLEDGE_MAP.md — Flows
+
+sequenceDiagram
+    autonumber
+    participant HR
+    participant Gateway as API Gateway
+    participant ConvMgr as Conversation Manager
+    participant Retrieval as Retrieval Service
+    participant Embedding as Embedding Service
+    participant Qdrant
+    participant Generation as Generation Service
+    participant Ollama
+
+    HR->>Gateway: POST /match-vacancy (owner_id, vacancy_text, summary)
+    Gateway->>ConvMgr: match request (lock)
+    ConvMgr->>Retrieval: search(vacancy_text, filter: owner_id, top_k)
+    Retrieval->>Embedding: embed(vacancy_text)
+    Embedding-->>Retrieval: vector
+    Retrieval->>Qdrant: vector search
+    Qdrant-->>Retrieval: chunks
+    Retrieval-->>ConvMgr: chunks
+    ConvMgr->>ConvMgr: relevance_score, matched_snippets (one candidate)
+    opt summary=true
+        ConvMgr->>Generation: generate(pros, cons, summary)
+        Generation->>Ollama: LLM
+        Ollama-->>Generation: text
+        Generation-->>ConvMgr: summary
+    end
+    ConvMgr-->>Gateway: [ { owner_id, relevance_score, matched_snippets, summary? } ]
+    Gateway-->>HR: one candidate result

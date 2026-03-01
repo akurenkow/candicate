@@ -1,0 +1,111 @@
+---
+description: Python Coding Standards for Large Projects
+globs: ["**/*.py"]
+alwaysApply: false
+---
+
+# File Size and Modularity
+
+- Maximum file length: 500 lines.
+- Decomposition is mandatory when approaching 350 lines.
+- Files exceeding 800 lines are considered critical errors and require immediate refactoring.
+- One module — one responsibility.
+- Group related modules into packages (folders with `__init__.py`).
+- Avoid package nesting deeper than 4 levels from the src root.
+
+# Naming Conventions
+
+- Packages: short, lowercase, no underscores (users, parsers).
+- Modules: lowercase, with underscores (user_profile.py).
+- Classes: PascalCase (UserProfile).
+- Functions and methods: snake_case (fetch_user_data, is_valid_email).
+- Variables: snake_case (user_id, is_active).
+- Constants: UPPER_SNAKE_CASE (MAX_RETRIES, DEFAULT_TIMEOUT).
+- Private members: single leading underscore (_internal).
+- Protected: no convention; use single underscore for internal use.
+- Magic methods: double leading and trailing underscores (__init__), do not create custom ones.
+- Single-letter names are allowed only for loop counters (i, j) and short lambdas.
+
+# Formatting
+
+- Indentation: 4 spaces, no tabs.
+- Line length: maximum 88 characters (Black-compatible).
+- Quotes: double quotes for docstrings, single quotes for short strings.
+- Spaces around operators and after commas.
+- Blank lines: two between top-level functions and classes, one between class methods.
+- Imports: one import per line (except `from module import x, y`).
+- Avoid backslashes for line continuation — use parentheses.
+
+# Imports
+
+- Grouping (separated by a blank line):
+  1. Standard library
+  2. Third-party libraries
+  3. Internal modules (absolute imports preferred)
+- Relative imports are allowed only inside a package (from . import sibling).
+- Unused imports are forbidden.
+- Sorting within groups: alphabetically.
+
+# Typing
+
+- Use type annotations for all public functions and methods.
+- Import types from typing/collections.abc (List, Dict, Optional, Union, Callable).
+- For Python 3.11+: use built-in generic types (list, dict).
+- Prefer Optional[T] over Union[T, None].
+- Type annotations for simple variables are optional but encouraged.
+
+# Error Handling
+
+- Always handle exceptions with specific types (except ValueError:), never bare except:.
+- Define custom exceptions by subclassing Exception.
+- Use context managers (with) for resource handling (files, connections).
+- Log exceptions via logging.exception() or logging.error() with exc_info=True.
+- Do not suppress exceptions without explicit justification and comment.
+
+# Comments and Documentation
+
+- All public modules, classes, and functions must have docstrings (Google/Sphinx/NumPy style).
+- Docstrings should include: short description, arguments, return value, raised exceptions.
+- Comment complex algorithms — explain "why", not "what".
+- TODO/FIXME: must contain author identifier and date.
+- Commented-out code is forbidden.
+- Extract magic numbers and strings into constants.
+
+# Testing
+
+- Use pytest (preferred) or unittest.
+- Test file names: test_*.py.
+- Test function names: test_*.
+- Each test function should verify one behavior.
+- Test structure: Arrange, Act, Assert.
+- Use pytest fixtures for shared state.
+- Mocks via unittest.mock or pytest-mock.
+- Test coverage for critical code: at least 80%.
+
+# Project Structure
+
+- Place code in src/ or in the root under a package name.
+- Include README.md, pyproject.toml, setup.cfg, requirements/ or poetry.lock in the project root folder.
+- Virtual environment is mandatory; dependencies must be pinned.
+- Use Black for formatting, isort for import sorting, flake8 or ruff for linting.
+- Pre-commit hooks for automated checks before commits.
+
+CRITICAL RULES:
+
+- Implement ONLY what is explicitly requested.
+- Modify or create ONLY the mentioned file.
+- Do NOT add documentation, scripts, configs, or examples unless specifically requested.
+- Do NOT improve architecture unless specifically requested.
+- Prefer the smallest working solution.
+- If expansion seems useful — STOP and ask.
+- Everything else is forbidden unless approved.
+
+Goal: minimal implementation, nothing more.
+
+# Dependency Management
+
+- Add new dependencies only when necessary.
+- Prefer actively maintained packages with type hints.
+- Pin versions in requirements.txt or via poetry/pipenv.
+- Avoid circular imports — refactor into common modules.
+- Do not duplicate logic — extract into shared utilities.
