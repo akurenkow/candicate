@@ -12,6 +12,7 @@ from config import (
     CLARIFY_THRESHOLD,
     ANSWER_THRESHOLD,
     COMPANY_FUZZY_CUTOFF,
+    MAX_CLARIFICATION_ATTEMPTS,
 )
 from prompt_assembler import build_prompt
 from query_decomposition import Subtask
@@ -31,6 +32,13 @@ def _max_score(chunks: list[dict[str, Any]]) -> float:
     if not chunks:
         return 0.0
     return max(float(c.get("score", 0) or 0) for c in chunks)
+
+
+def _refined_query(original: str, refinement: str) -> str:
+    """Build query for retry: original + non-empty refinement (space-separated)."""
+    if not (refinement or "").strip():
+        return (original or "").strip() or ""
+    return f"{(original or '').strip()} {(refinement or '').strip()}".strip()
 
 
 def _resolve_company_fuzzy(normalized: str, candidates: list[str], cutoff: float | None = None) -> str | None:
@@ -59,7 +67,9 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
     """
     Run retrieval then generation for one subtask.
     Below CLARIFY_THRESHOLD -> failed_low_score; no chunks -> failed_retrieval.
-    At or above CLARIFY_THRESHOLD with usable chunks -> generate answer (no internal clarification loop).
+    Score in [CLARIFY_THRESHOLD, ANSWER_THRESHOLD): clarification loop — gen_clarification,
+    refined query, retry retrieval (up to MAX_CLARIFICATION_ATTEMPTS); on exhaustion -> failed_retrieval.
+    Score >= ANSWER_THRESHOLD -> generate answer, return success or failed_generation.
     owner_id scopes search to candidate (documents.owner_id).
     """
     filters: dict[str, str] = {}
@@ -86,51 +96,60 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
     use_filters = filters if filters else None
 
     query = subtask.query
-    chunks = await _retrieve(query, trace_id, owner_id, use_filters)
+    history: list[dict[str, str]] = []
+    attempt = 0
 
-    if not chunks:
-        return SubtaskResult.failed_retrieval()
+    while True:
+        chunks = await _retrieve(query, trace_id, owner_id, use_filters)
 
-    max_score_val = _max_score(chunks)
-    logger.info(
-        "run_retrieval owner_id=%r query=%r chunks_count=%s max_score=%s first_chunk_keys=%s",
-        owner_id,
-        (query[:60] if query else ""),
-        len(chunks),
-        max_score_val,
-        list(chunks[0].keys()) if chunks else [],
-    )
+        if not chunks:
+            return SubtaskResult.failed_retrieval()
 
-    # Chunks with section_kind=general (e.g. salary) are answer-ready; skip clarification loop
-    if any((c.get("metadata") or {}).get("section_kind") == "general" for c in chunks):
-        max_score_val = max(max_score_val, ANSWER_THRESHOLD)
+        max_score_val = _max_score(chunks)
+        logger.info(
+            "run_retrieval owner_id=%r query=%r attempt=%s chunks_count=%s max_score=%s first_chunk_keys=%s",
+            owner_id,
+            (query[:60] if query else ""),
+            attempt,
+            len(chunks),
+            max_score_val,
+            list(chunks[0].keys()) if chunks else [],
+        )
 
-    if max_score_val < CLARIFY_THRESHOLD:
-        return SubtaskResult.failed_low_score()
+        # Chunks with section_kind=general (e.g. salary) are answer-ready; skip clarification loop
+        if any((c.get("metadata") or {}).get("section_kind") == "general" for c in chunks):
+            max_score_val = max(max_score_val, ANSWER_THRESHOLD)
 
-    if not any((c.get("text") or "").strip() for c in chunks):
-        return SubtaskResult.failed_no_usable_text()
+        if max_score_val < CLARIFY_THRESHOLD:
+            return SubtaskResult.failed_low_score()
 
-    # Score in [CLARIFY, ANSWER): return one clarifying question to user (no internal loop, no clearing validation)
-    if max_score_val < ANSWER_THRESHOLD:
+        if not any((c.get("text") or "").strip() for c in chunks):
+            return SubtaskResult.failed_no_usable_text()
+
+        if max_score_val < ANSWER_THRESHOLD:
+            if attempt >= MAX_CLARIFICATION_ATTEMPTS:
+                return SubtaskResult.failed_retrieval()
+            t0 = time.perf_counter()
+            clar = await gen_clarification(subtask.query, chunks, history, trace_id=trace_id)
+            record_generation_duration(time.perf_counter() - t0, "query", SERVICE_NAME)
+            if not clar.success or not (clar.output or "").strip():
+                return SubtaskResult.failed_low_score()
+            history.append({"role": "assistant", "content": clar.output.strip()})
+            query = _refined_query(query, clar.output)
+            attempt += 1
+            continue
+
+        # Score >= ANSWER_THRESHOLD: generate full answer
+        prompt = build_prompt([], chunks, query, MODEL_CONTEXT_LIMIT)
         t0 = time.perf_counter()
-        clar = await gen_clarification(subtask.query, chunks, [], trace_id=trace_id)
+        result = await generation_generate(
+            prompt.text,
+            context_query=subtask.query,
+            system_prompt=prompt.system_instruction,
+            validate_verbosity=True,
+            trace_id=trace_id,
+        )
         record_generation_duration(time.perf_counter() - t0, "query", SERVICE_NAME)
-        if clar.success and (clar.output or "").strip():
-            return SubtaskResult.needs_clarification(clar.output)
-        return SubtaskResult.failed_low_score()
-
-    # Score >= ANSWER_THRESHOLD: generate full answer
-    prompt = build_prompt([], chunks, query, MODEL_CONTEXT_LIMIT)
-    t0 = time.perf_counter()
-    result = await generation_generate(
-        prompt.text,
-        context_query=subtask.query,
-        system_prompt=prompt.system_instruction,
-        validate_verbosity=True,
-        trace_id=trace_id,
-    )
-    record_generation_duration(time.perf_counter() - t0, "query", SERVICE_NAME)
-    if not result.success or not result.output:
-        return SubtaskResult.failed_generation()
-    return SubtaskResult.success(result.output)
+        if not result.success or not result.output:
+            return SubtaskResult.failed_generation()
+        return SubtaskResult.success(result.output)
