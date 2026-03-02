@@ -10,14 +10,12 @@ from config import (
     MODEL_CONTEXT_LIMIT,
     CLARIFY_THRESHOLD,
     ANSWER_THRESHOLD,
-    MAX_CLARIFICATION_ATTEMPTS,
 )
 from prompt_assembler import build_prompt
 from query_decomposition import Subtask
 from query_filters import extract_company_from_query
 from retrieval_client import search as retrieval_search
 from generation_client import generate as generation_generate
-from generation_client import generate_clarification as gen_clarification
 from subtask_result import SubtaskResult
 from shared.telemetry import record_retrieval_duration, record_generation_duration
 
@@ -30,14 +28,6 @@ def _max_score(chunks: list[dict[str, Any]]) -> float:
     if not chunks:
         return 0.0
     return max(float(c.get("score", 0) or 0) for c in chunks)
-
-
-def _refined_query(original_query: str, clarification_answer: str) -> str:
-    """Merge original query and user clarification into refined query."""
-    a = (clarification_answer or "").strip()
-    if not a:
-        return original_query
-    return f"{original_query.strip()} {a}".strip()
 
 
 async def _retrieve(
@@ -55,9 +45,8 @@ async def _retrieve(
 async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = "") -> SubtaskResult:
     """
     Run retrieval then generation for one subtask.
-    Applies score thresholds: below CLARIFY_THRESHOLD -> failed_retrieval;
-    between CLARIFY_THRESHOLD and ANSWER_THRESHOLD -> clarification loop (refined query, re-retrieve, bounded retries);
-    at or above ANSWER_THRESHOLD -> normal generation.
+    Below CLARIFY_THRESHOLD -> failed_low_score; no chunks -> failed_retrieval.
+    At or above CLARIFY_THRESHOLD with usable chunks -> generate answer (no internal clarification loop).
     owner_id scopes search to candidate (documents.owner_id).
     """
     filters: dict[str, str] = {}
@@ -94,34 +83,8 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
     if not any((c.get("text") or "").strip() for c in chunks):
         return SubtaskResult.failed_no_usable_text()
 
-    clarification_attempts = 0
-    history: list[dict[str, str]] = []
-
-    while max_score_val < ANSWER_THRESHOLD:
-        if clarification_attempts >= MAX_CLARIFICATION_ATTEMPTS:
-            return SubtaskResult.failed_low_score()
-
-        t0 = time.perf_counter()
-        clar = await gen_clarification(query, chunks, history, trace_id=trace_id)
-        record_generation_duration(time.perf_counter() - t0, "query", SERVICE_NAME)
-        if not clar.success or not (clar.output or "").strip():
-            return SubtaskResult.failed_low_score()
-
-        history.append({"role": "assistant", "content": clar.output})
-        query = _refined_query(subtask.query, clar.output)
-        clarification_attempts += 1
-
-        chunks = await _retrieve(query, trace_id, owner_id, use_filters)
-        if not chunks:
-            return SubtaskResult.failed_retrieval()
-        max_score_val = _max_score(chunks)
-        if any((c.get("metadata") or {}).get("section_kind") == "general" for c in chunks):
-            max_score_val = max(max_score_val, ANSWER_THRESHOLD)
-        if max_score_val < CLARIFY_THRESHOLD:
-            return SubtaskResult.failed_low_score()
-        if not any((c.get("text") or "").strip() for c in chunks):
-            return SubtaskResult.failed_no_usable_text()
-
+    # Generate answer from retrieved chunks. Clarification loop disabled: questions were
+    # generated internally and never sent to the user, so we always generate when above CLARIFY.
     prompt = build_prompt([], chunks, query, MODEL_CONTEXT_LIMIT)
     t0 = time.perf_counter()
     result = await generation_generate(
