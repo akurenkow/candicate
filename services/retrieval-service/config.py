@@ -12,3 +12,5 @@ TOP_K = int(os.getenv("TOP_K") or os.getenv("DEFAULT_TOP_K", "10"))
 QDRANT_URL = get_env("QDRANT_URL", "http://localhost:6333")
 QDRANT_COLLECTION = get_env("QDRANT_COLLECTION", "documents")
 EMBEDDING_SERVICE_URL = get_env("EMBEDDING_SERVICE_URL", "http://embedding-service:8000")
+# Score for fallback scroll chunks when vector search returns 0 (e.g. technology queries). Should be >= ANSWER_THRESHOLD in CM to skip clarification.
+FALLBACK_SCROLL_SCORE = float(os.getenv("FALLBACK_SCROLL_SCORE", "0.55"))

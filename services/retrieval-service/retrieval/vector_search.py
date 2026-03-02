@@ -214,6 +214,45 @@ class QdrantVectorSearch:
                     logger.debug("QdrantVectorSearch scroll general failed (non-fatal): %s", scroll_err)
 
         merged = general_chunks + vector_chunks
+
+        # Fallback for technology/skill queries (e.g. "опыт в ML"): when vector+general return 0 chunks
+        # but we have owner_id, scroll any chunks for this owner so the pipeline can still answer from resume.
+        owner_id_val = (filter_metadata or {}).get("owner_id") if filter_metadata else None
+        if (
+            len(merged) == 0
+            and owner_id_val
+            and (str(owner_id_val).strip() if isinstance(owner_id_val, str) else owner_id_val)
+        ):
+            try:
+                from qdrant_client.models import Filter, FieldCondition, MatchValue
+                owner_filter = Filter(must=[FieldCondition(key="owner_id", match=MatchValue(value=str(owner_id_val).strip()))])
+                scroll_result = await loop.run_in_executor(
+                    None,
+                    lambda sf=owner_filter: self._client.scroll(
+                        collection_name=self._collection,
+                        scroll_filter=sf,
+                        limit=top_k,
+                        with_payload=True,
+                        with_vectors=False,
+                    ),
+                )
+                raw_records = scroll_result[0] if isinstance(scroll_result, (list, tuple)) else []
+                try:
+                    from config import FALLBACK_SCROLL_SCORE as fallback_score
+                except ImportError:
+                    fallback_score = 0.55
+                for rec in raw_records or []:
+                    c = _payload_to_doc_chunk(rec, fallback_score)
+                    if (c.text or "").strip():
+                        merged.append(c)
+                if merged:
+                    logger.info(
+                        "QdrantVectorSearch fallback scroll by owner_id (no vector match) returned %s chunks",
+                        len(merged),
+                    )
+            except Exception as fallback_err:
+                logger.debug("QdrantVectorSearch fallback scroll failed (non-fatal): %s", fallback_err)
+
         logger.info(
             "QdrantVectorSearch result filter_metadata=%s vector_chunks=%s general_chunks=%s total=%s",
             filter_metadata,

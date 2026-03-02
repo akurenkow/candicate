@@ -424,6 +424,7 @@ services:
       # Параметры поиска
       DEFAULT_TOP_K: ${TOP_K:-10}
       TOP_K: ${TOP_K:-10}
+      FALLBACK_SCROLL_SCORE: ${FALLBACK_SCROLL_SCORE:-0.55}
       SEMANTIC_WEIGHT: 0.7
       KEYWORD_WEIGHT: 0.3
       ENABLE_HYBRID_SEARCH: "true"
