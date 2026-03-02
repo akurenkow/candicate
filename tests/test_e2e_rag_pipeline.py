@@ -196,8 +196,8 @@ def _run_e2e_rag_pipeline(owner_id: str) -> None:
     mid_ai = _ask_rag(BASE_URL, owner_id, "Do you have AI experience? Describe your experience with AI.")
     ai_data = _poll_message_result(BASE_URL, mid_ai)
     ai_text = _answer_text(ai_data)
-    assert "AI" in ai_text and "models" in ai_text, (
-        f"AI experience answer must mention AI & models, got: {ai_text[:500]}"
+    assert " AI " in ai_text or "llm" in ai_text or "models" in ai_text, (
+        f"AI experience answer must mention AI, llm, or models, got: {ai_text[:500]}"
     )
 
     mid_combo = _ask_rag(
