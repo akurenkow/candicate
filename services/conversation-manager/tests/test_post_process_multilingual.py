@@ -216,6 +216,7 @@ async def test_process_one_stored_vs_translated_when_generation_returns_text(poo
 async def test_process_one_translation_failure_escalates(pool):
     from clearing_client import PreprocessResult
     from subtask_result import SubtaskResult
+    from post_process import PostProcessResult
     get_message, create_message = _cm_db.get_message, _cm_db.create_message
 
     async with pool.acquire() as conn:
@@ -229,9 +230,13 @@ async def test_process_one_translation_failure_escalates(pool):
                 m_trans.return_value = TranslateResult(translated_text="Hello", error=None)
                 with patch("consumer._process_subtask", new_callable=AsyncMock) as m_sub:
                     m_sub.return_value = SubtaskResult.success("English reply.")
-                    with patch("post_process.translate_client", new_callable=AsyncMock) as pt:
-                        pt.return_value = TranslateResult(translated_text=None, error="timeout")
-                    with patch("post_process.POSTPROCESS_TRANSLATION_RETRY_LIMIT", 2):
+                    with patch("consumer.post_process", new_callable=AsyncMock) as m_pp:
+                        m_pp.return_value = PostProcessResult(
+                            stored="English reply.",
+                            translated=None,
+                            translation_failed=True,
+                            translation_failure_reason="timeout",
+                        )
                         from consumer import process_one
                         await process_one(pool, mid, "worker-1", trace_id="")
     async with pool.acquire() as conn:
