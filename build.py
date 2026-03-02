@@ -331,6 +331,33 @@ def run_unit_tests() -> bool:
             return False
     return True
 
+
+def _compose_cmd_with_overlay(gpu: bool = False) -> List[str]:
+    """Формирует базовую команду docker compose с нужными -f (тот же выбор overlay, что и для up)."""
+    cmd = ["docker", "compose", "-f", COMPOSE_FILE]
+    if gpu:
+        cmd.extend(["-f", COMPOSE_GPU_FILE])
+    check_result = subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "scripts" / "check_llm_vendor.py")],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+    )
+    if check_result.returncode == 0:
+        cmd.extend(["-f", str(PROJECT_ROOT / "docker-compose.vendor-embeddings.yml")])
+    else:
+        cmd.extend(["-f", str(PROJECT_ROOT / "docker-compose.ollama.yml")])
+        if gpu:
+            cmd.extend(["-f", str(PROJECT_ROOT / "docker-compose.ollama-gpu.yml")])
+    return cmd
+
+
+def run_tests_via_runner(gpu: bool = False) -> bool:
+    """Запускает тесты через контейнер test-runner (docker compose run --rm test-runner)."""
+    cmd = _compose_cmd_with_overlay(gpu)
+    cmd.extend(["--profile", "test", "run", "--rm", "test-runner"])
+    return run_command(cmd, "Запуск тестов (test-runner контейнер)")
+
+
 def run_tests_with_coverage() -> bool:
     """Запускает unit + e2e тесты с отчётом покрытия (pytest-cov)."""
     py = _get_python_for_tests()
@@ -556,7 +583,7 @@ def rebuild_base(no_cache: bool = False, pull: bool = False, prune: bool = False
     if (total_erase or erase_db) and not run_erase():
         return False
     if run_tests:
-        if not run_tests_with_coverage():
+        if not run_tests_via_runner(gpu=gpu):
             return False
     if render_png and not process_mmd_files():
         return False
@@ -599,7 +626,7 @@ def rebuild_service(service_name: str, no_cache: bool = False, pull: bool = Fals
     if (total_erase or erase_db) and not run_erase():
         return False
     if run_tests:
-        if not run_tests_with_coverage():
+        if not run_tests_via_runner(gpu=gpu):
             return False
     if render_png and not process_mmd_files():
         return False
@@ -656,7 +683,7 @@ def rebuild_all(no_cache: bool = False, pull: bool = False, prune: bool = False,
     if (total_erase or erase_db) and not run_erase():
         return False
     if run_tests:
-        if not run_tests_with_coverage():
+        if not run_tests_via_runner(gpu=gpu):
             return False
     if render_png and not process_mmd_files():
         return False
@@ -726,7 +753,7 @@ def main():
     rebuild_base_parser.add_argument("--gpu", action="store_true", help="Запустить compose с docker-compose.gpu.yml (GPU)")
     rebuild_base_parser.add_argument("--total-erase", action="store_true", help="ПОЛНАЯ ОЧИСТКА: остановить контейнеры, удалить образы проекта и build cache, затем очистить Redis, Qdrant и PostgreSQL")
     rebuild_base_parser.add_argument("--erase-db", action="store_true", help="Очистить только кэш Redis, Qdrant и пользовательские таблицы PostgreSQL (без очистки Docker)")
-    rebuild_base_parser.add_argument("--run-tests", action="store_true", help="Перед сборкой PNG запустить pytest tests/test_e2e_ingestion_flow.py")
+    rebuild_base_parser.add_argument("--run-tests", action="store_true", help="После пересборки запустить тесты через контейнер test-runner")
     rebuild_base_parser.add_argument("--render-png", action="store_true", help="Конвертировать .mmd в PNG в diagrams/")
 
     # rebuild service
@@ -738,7 +765,7 @@ def main():
     rebuild_service_parser.add_argument("--gpu", action="store_true", help="Запустить compose с docker-compose.gpu.yml (GPU)")
     rebuild_service_parser.add_argument("--total-erase", action="store_true", help="ПОЛНАЯ ОЧИСТКА: остановить контейнеры, удалить образы проекта и build cache, затем очистить Redis, Qdrant и PostgreSQL")
     rebuild_service_parser.add_argument("--erase-db", action="store_true", help="Очистить только кэш Redis, Qdrant и пользовательские таблицы PostgreSQL (без очистки Docker)")
-    rebuild_service_parser.add_argument("--run-tests", action="store_true", help="Перед сборкой PNG запустить pytest tests/test_e2e_ingestion_flow.py")
+    rebuild_service_parser.add_argument("--run-tests", action="store_true", help="После пересборки запустить тесты через контейнер test-runner")
     rebuild_service_parser.add_argument("--render-png", action="store_true", help="Конвертировать .mmd в PNG в diagrams/")
 
     # rebuild all
@@ -749,7 +776,7 @@ def main():
     rebuild_all_parser.add_argument("--gpu", action="store_true", help="Запустить compose с docker-compose.gpu.yml (GPU)")
     rebuild_all_parser.add_argument("--total-erase", action="store_true", help="ПОЛНАЯ ОЧИСТКА: остановить контейнеры, удалить образы проекта и build cache, затем очистить Redis, Qdrant и PostgreSQL")
     rebuild_all_parser.add_argument("--erase-db", action="store_true", help="Очистить только кэш Redis, Qdrant и пользовательские таблицы PostgreSQL (без очистки Docker)")
-    rebuild_all_parser.add_argument("--run-tests", action="store_true", help="Перед сборкой PNG запустить pytest tests/test_e2e_ingestion_flow.py")
+    rebuild_all_parser.add_argument("--run-tests", action="store_true", help="После пересборки запустить тесты через контейнер test-runner (pytest с покрытием)")
     rebuild_all_parser.add_argument("--render-png", action="store_true", help="Конвертировать .mmd в PNG в diagrams/")
 
     # Команда up — только запуск docker-compose (без пересборки)
