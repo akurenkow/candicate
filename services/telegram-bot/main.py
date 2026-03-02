@@ -56,10 +56,10 @@ logger = logging.getLogger(__name__)
 TEXTS = {
     "ru": {
         "update_resume": "Обновить резюме",
-        "generate_hash": "Сгенерировать хэш",
+        "generate_hash": "Сгенерировать персональный токен доступа для рекрутера",
         "help": "Помощь",
-        "link_candidate": "Связать кандидата",
-        "match": "Match",
+        "link_candidate": "Привязать кандидата (фигурально)",
+        "match": "Поехали! (запуск алгоритма сопоставления...)",
         "switch_mode": "Переключить режим",
         "help_candidate": "Кандидат: /update — загрузить резюме (.txt), /hash — сгенерировать токен для связи с HR.",
         "help_recruiter": "Рекрутер: /link [токен] — связаться с кандидатом, /match — сопоставить с вакансией (сначала /link).",
@@ -67,42 +67,43 @@ TEXTS = {
         "cmd_start": "Запуск",
         "cmd_help": "Помощь",
         "cmd_lang": "Язык",
-        "choose_language": "Выберите язык / Choose language:",
+        "choose_language": "Я вас внимательно слушаю. Выберите язык / Choose language:",
         "menu_ready": "Готово. /lang — язык.",
         "menu_mode_admin": "Режим: {mode}. /switch — переключить.",
         "access_denied": "Доступ запрещён. / Access denied.",
-        "enter_candidate_token": "Введите токен кандидата.",
+        "enter_candidate_token": "Введите код допуска (токен кандидата).",
         "lang_usage": "Использование: /lang ru или /lang en",
         "language_updated": "Язык обновлён.",
         "error_generic": "Я не упал, шеф, — меня уронили... (error_generic)",
         "user_not_found": "Пользователь не найден.",
-        "recruiters_only": "Только для рекрутеров.",
+        "recruiters_only": "Доступ только для офицеров связи... (только для рекрутеров).",
+        "candidates_only": "Свой среди чужих... (только для кандидатов).",
         "use_link_first": "Свяжитесь с кандидатом через /link.",
         "send_vacancy_file": "Отправьте файл в формате doc(x)/pdf/txt или краткое описание (не больше 1 сообщения телеграм).",
         "upload_resume_txt": "Загрузите резюме в формате .txt (макс. 1 МБ).",
         "vacancy_format": "Формат не поддерживается. Используйте doc(x)/pdf/txt.",
-        "file_too_large_1mb": "Файл слишком большой (макс. 1 МБ).",
+        "file_too_large_1mb": "Маловато будет? Нет. Великовато. Макс. 1 МБ.",
         "download_failed": "Не удалось загрузить файл.",
         "only_txt": "Только .txt.",
         "service_error": "Я не упал, шеф, — меня уронили... (service_error)",
         "request_error": "Я не упал, шеф, — меня уронили... (request_error)",
         "response_error": "Я не упал, шеф, — меня уронили... (response_error)",
-        "processing": "Обработка...",
+        "processing": "Спокойствие, только спокойствие! (идет анализ данных...)",
         "language_chosen_waiting_hash": "Язык выбран. Ожидание хэша.",
         "choose_lang_ru_en": "Выберите язык: ru или en",
         "mode_switched": "Режим: {mode}.",
         "description_too_long": "Описание слишком большое, отправьте файл в формате doc(x)/pdf/txt.",
-        "link_lost": "Связь с кандидатом потеряна. Используйте /link.",
+        "link_lost": "Канал связи разорван. Требуется повторная стыковка. Используйте /link.",
         "upload_error": "Я не упал, шеф, — меня уронили... (upload_error)",
         "upload_failed": "Я не упал, шеф, — меня уронили... (upload_failed)",
         "indexing_failed": "Я не упал, шеф, — меня уронили... (indexing_failed)",
-        "resume_indexed": "Резюме проиндексировано и разбито на {n} чанков.",
+        "resume_indexed": "Архив структурирован. Сегментов: {n}.",
         "invalid_response": "Я не упал, шеф, — меня уронили... (invalid_response)",
         "no_response": "Я не упал, шеф, — меня уронили... (no_response)",
         "timeout": "Я не упал, шеф, — меня уронили... (timeout)",
         "translation_failed": "Я не упал, шеф, — меня уронили... (translation_failed)",
-        "no_results": "Нет результатов (нет документов кандидата).",
-        "relevance": "Релевантность: {score:.2f}",
+        "no_results": "Совпадений не обнаружено.",
+        "relevance": "Совпадение? Не думаю. Релевантность: {score:.2f}",
         "resume_accepted": "Резюме принято (job_id: {job_id}). Дождитесь завершения индексации.",
     },
     "en": {
@@ -128,6 +129,7 @@ TEXTS = {
         "error_generic": "Error.",
         "user_not_found": "User not found.",
         "recruiters_only": "Recruiters only.",
+        "candidates_only": "Candidates only.",
         "use_link_first": "Use /link to link to a candidate.",
         "send_vacancy_file": "Send a file (doc/docx/pdf/txt) or brief description (max 1 Telegram message).",
         "upload_resume_txt": "Upload your resume as .txt file (max 1 MB).",
@@ -697,7 +699,7 @@ async def hash_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     role = user.get("role")
     mode = user.get("mode")
     if not _is_candidate_eligible(role, str(mode) if mode else None):
-        await update.message.reply_text(_t("access_denied", str(user.get("language") or "en")))
+        await update.message.reply_text(_t("candidates_only", str(user.get("language") or "en")))
         return
 
     token = generate_hash_token()
@@ -781,7 +783,7 @@ async def update_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     role = user.get("role")
     mode = user.get("mode")
     if not _is_candidate_eligible(role, str(mode) if mode else None):
-        await update.message.reply_text(_t("access_denied", str(user.get("language") or "en")))
+        await update.message.reply_text(_t("candidates_only", str(user.get("language") or "en")))
         return
 
     _set_state(tid, BotState.RESUME_PENDING)
@@ -894,6 +896,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         user.get("role"), str(user.get("mode")) if user.get("mode") else None
     )
     if not candidate_eligible:
+        await update.message.reply_text(_t("candidates_only", lang))
         return
     filename = doc.file_name or "resume.txt"
     if not filename.lower().endswith(".txt"):
@@ -1036,7 +1039,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if action == "switch" and role == "admin":
                 await switch_handler(update, context)
                 return
-            await update.message.reply_text(_t("access_denied", str(user.get("language") or "en")))
+            msg_key = "candidates_only" if action in ("update", "hash") else "access_denied"
+            await update.message.reply_text(_t(msg_key, str(user.get("language") or "en")))
             return
 
     if state == BotState.WAITING_HASH:
