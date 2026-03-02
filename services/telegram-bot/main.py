@@ -51,7 +51,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ru/en localization (UI only)
+# ru/en localization (UI only); default language if not set: en
 TEXTS = {
     "ru": {
         "update_resume": "Обновить резюме",
@@ -66,6 +66,44 @@ TEXTS = {
         "cmd_start": "Запуск",
         "cmd_help": "Помощь",
         "cmd_lang": "Язык",
+        "choose_language": "Выберите язык / Choose language:",
+        "menu_ready": "Готово. /lang — язык.",
+        "menu_mode_admin": "Режим: {mode}. /switch — переключить.",
+        "access_denied": "Доступ запрещён. / Access denied.",
+        "enter_candidate_token": "Введите токен кандидата. / Enter candidate token.",
+        "lang_usage": "Использование: /lang ru или /lang en\nUsage: /lang ru or /lang en",
+        "language_updated": "Язык обновлён.",
+        "error_generic": "Ошибка. / Error.",
+        "user_not_found": "Пользователь не найден. / User not found.",
+        "recruiters_only": "Только для рекрутеров. / Recruiters only.",
+        "use_link_first": "Свяжитесь с кандидатом через /link.\nUse /link to link to a candidate.",
+        "send_vacancy_file": "Отправьте файл в формате doc(x)/pdf/txt или краткое описание (не больше 1 сообщения телеграм).\nSend a file (doc/docx/pdf/txt) or brief description (max 1 Telegram message).",
+        "upload_resume_txt": "Загрузите резюме в формате .txt (макс. 1 МБ).\nUpload your resume as .txt file (max 1 MB).",
+        "vacancy_format": "Формат не поддерживается. Используйте doc(x)/pdf/txt.\nFormat not supported. Use doc/docx/pdf/txt.",
+        "file_too_large_5mb": "Файл слишком большой (макс. 5 МБ).\nFile too large (max 5 MB).",
+        "download_failed": "Не удалось загрузить файл. / Failed to download file.",
+        "only_txt": "Только .txt. / Only .txt files allowed.",
+        "file_too_large_1mb": "Файл слишком большой (макс. 1 МБ). / File too large (max 1 MB).",
+        "service_error": "Ошибка сервиса. / Service error.",
+        "request_error": "Ошибка запроса. / Request error.",
+        "response_error": "Ошибка ответа. / Response error.",
+        "processing": "Обработка...",
+        "language_chosen_waiting_hash": "Язык выбран. Ожидание хэша.",
+        "choose_lang_ru_en": "Выберите язык: ru или en\nChoose language: ru or en",
+        "mode_switched": "Режим: {mode}.",
+        "description_too_long": "Описание слишком большое, отправьте файл в формате doc(x)/pdf/txt.\nDescription too long. Send a file in doc/docx/pdf/txt format.",
+        "link_lost": "Связь с кандидатом потеряна. Используйте /link.\nLink lost. Use /link.",
+        "upload_error": "Ошибка при загрузке. / Upload error.",
+        "upload_failed": "Ошибка загрузки: {detail}.\nUpload failed.",
+        "indexing_failed": "Ошибка индексации: {detail}.\nIndexing failed.",
+        "resume_indexed": "Резюме проиндексировано и разбито на {n} чанков.\nResume indexed and split into {n} chunks.",
+        "invalid_response": "Ошибка формата. / Invalid response.",
+        "no_response": "Нет ответа. / No response.",
+        "timeout": "Таймаут. / Timeout.",
+        "translation_failed": "Ошибка перевода ответа. Попробуйте позже или обратитесь к администратору. / Response translation failed. Try again later or contact support.",
+        "no_results": "Нет результатов (нет документов кандидата).\nNo results (no candidate documents).",
+        "relevance": "Релевантность: {score:.2f}",
+        "resume_accepted": "Резюме принято (job_id: {job_id}).\nResume accepted.",
     },
     "en": {
         "update_resume": "Update resume",
@@ -80,6 +118,44 @@ TEXTS = {
         "cmd_start": "Start",
         "cmd_help": "Help",
         "cmd_lang": "Language",
+        "choose_language": "Choose language / Выберите язык:",
+        "menu_ready": "Ready. /lang for language.",
+        "menu_mode_admin": "Mode: {mode}. /switch to toggle.",
+        "access_denied": "Access denied. / Доступ запрещён.",
+        "enter_candidate_token": "Enter candidate token. / Введите токен кандидата.",
+        "lang_usage": "Usage: /lang ru or /lang en\nИспользование: /lang ru или /lang en",
+        "language_updated": "Language updated.",
+        "error_generic": "Error. / Ошибка.",
+        "user_not_found": "User not found. / Пользователь не найден.",
+        "recruiters_only": "Recruiters only. / Только для рекрутеров.",
+        "use_link_first": "Use /link to link to a candidate.\nСвяжитесь с кандидатом через /link.",
+        "send_vacancy_file": "Send a file (doc/docx/pdf/txt) or brief description (max 1 Telegram message).\nОтправьте файл в формате doc(x)/pdf/txt или краткое описание.",
+        "upload_resume_txt": "Upload your resume as .txt file (max 1 MB).\nЗагрузите резюме в формате .txt (макс. 1 МБ).",
+        "vacancy_format": "Format not supported. Use doc/docx/pdf/txt.\nФормат не поддерживается. Используйте doc(x)/pdf/txt.",
+        "file_too_large_5mb": "File too large (max 5 MB).\nФайл слишком большой (макс. 5 МБ).",
+        "download_failed": "Failed to download file. / Не удалось загрузить файл.",
+        "only_txt": "Only .txt files allowed. / Только .txt.",
+        "file_too_large_1mb": "File too large (max 1 MB). / Файл слишком большой (макс. 1 МБ).",
+        "service_error": "Service error. / Ошибка сервиса.",
+        "request_error": "Request error. / Ошибка запроса.",
+        "response_error": "Response error. / Ошибка ответа.",
+        "processing": "Processing...",
+        "language_chosen_waiting_hash": "Language chosen. Waiting for hash.",
+        "choose_lang_ru_en": "Choose language: ru or en\nВыберите язык: ru или en",
+        "mode_switched": "Mode: {mode}.",
+        "description_too_long": "Description too long. Send a file in doc/docx/pdf/txt format.\nОписание слишком большое. Отправьте файл в формате doc(x)/pdf/txt.",
+        "link_lost": "Link lost. Use /link.\nСвязь с кандидатом потеряна. Используйте /link.",
+        "upload_error": "Upload error. / Ошибка при загрузке.",
+        "upload_failed": "Upload failed: {detail}.\nОшибка загрузки: {detail}.",
+        "indexing_failed": "Indexing failed: {detail}.\nОшибка индексации: {detail}.",
+        "resume_indexed": "Resume indexed and split into {n} chunks.\nРезюме проиндексировано и разбито на {n} чанков.",
+        "invalid_response": "Invalid response. / Ошибка формата.",
+        "no_response": "No response. / Нет ответа.",
+        "timeout": "Timeout. / Таймаут.",
+        "translation_failed": "Response translation failed. Try again later or contact support. / Ошибка перевода ответа.",
+        "no_results": "No results (no candidate documents).\nНет результатов (нет документов кандидата).",
+        "relevance": "Relevance: {score:.2f}",
+        "resume_accepted": "Resume accepted (job_id: {job_id}).\nРезюме принято.",
     },
 }
 
@@ -93,11 +169,17 @@ for _lang, _d in TEXTS.items():
     BTN_TO_ACTION[_d["switch_mode"]] = "switch"
 
 
-def _t(key: str, lang: str | None) -> str:
+def _t(key: str, lang: str | None, **kwargs: str | int) -> str:
     l = (lang or "en").lower()
     if l not in TEXTS:
         l = "en"
-    return TEXTS[l].get(key, TEXTS["en"].get(key, key))
+    s = TEXTS[l].get(key, TEXTS["en"].get(key, key))
+    if kwargs:
+        try:
+            return s.format(**kwargs)
+        except KeyError:
+            return s
+    return s
 
 
 def _menu_keyboard(role: str | None, mode: str | None, lang: str | None) -> ReplyKeyboardMarkup:
@@ -194,6 +276,99 @@ async def _poll_and_edit_chat_response(
         logger.warning("edit_message_text for chat failed: %s", e)
 
 
+async def _process_chat_message(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    tid: int,
+    text: str,
+    lang: str,
+) -> None:
+    """Send user message to chat API, show processing, then poll and edit with response. Uses lang for UI strings."""
+    pool: asyncpg.Pool = context.bot_data["pool"]
+    async with pool.acquire() as conn:
+        user = await get_user_by_telegram_id(conn, str(tid))
+    if user is None:
+        async with pool.acquire() as conn:
+            await create_user(conn, str(tid))
+            if str(tid) in _get_allowed_upload_user_ids():
+                await update_role(conn, str(tid), "candidate")
+        _set_state(tid, BotState.WAITING_HASH)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=_t("choose_language", "en"),
+            reply_markup=_lang_keyboard(),
+        )
+        if text.strip():
+            _pending_message[tid] = text.strip()
+        return
+    role = user.get("role")
+    mode = str(user.get("mode")) if user.get("mode") else None
+    owner_id: str | None = None
+    if _is_candidate_eligible(role, mode):
+        owner_id = str(tid)
+    elif _is_hr_eligible(role, mode):
+        owner_id = user.get("dialog_owner_id")
+        if not owner_id:
+            await context.bot.send_message(chat_id=chat_id, text=_t("use_link_first", lang))
+            return
+    if not owner_id:
+        return
+    base_url = os.getenv("BASE_API_URL", "").rstrip("/")
+    if not base_url:
+        await context.bot.send_message(chat_id=chat_id, text=_t("service_error", lang))
+        return
+    sent = await context.bot.send_message(chat_id=chat_id, text=_t("processing", lang))
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                f"{base_url}/chat",
+                params={"owner_id": owner_id},
+                json={"message": text},
+            )
+    except Exception as e:
+        logger.exception("Chat API error: %s", e)
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=sent.message_id,
+            text=_t("request_error", lang),
+        )
+        return
+    if r.status_code != 202:
+        err = _t("error_generic", lang)
+        try:
+            d = r.json().get("detail", r.text) if r.text else ""
+            d = d[0] if isinstance(d, list) and d else d
+            d = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
+            if d:
+                err = str(d)[:500]
+        except Exception:
+            pass
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=sent.message_id,
+            text=err,
+        )
+        return
+    body = r.json()
+    msg_id = body.get("message_id", "")
+    if not msg_id:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=sent.message_id,
+            text=_t("response_error", lang),
+        )
+        return
+    asyncio.create_task(
+        _poll_and_edit_chat_response(
+            context.bot,
+            base_url,
+            msg_id,
+            sent.chat_id,
+            sent.message_id,
+        )
+    )
+
+
 async def _poll_job_and_edit_message(
     bot,
     base_url: str,
@@ -250,6 +425,8 @@ async def _poll_job_and_edit_message(
 
 
 _user_states: dict[int, BotState] = {}
+# Pending message text for implicit /start: after user picks language we process this message
+_pending_message: dict[int, str] = {}
 
 
 def _get_state(telegram_id: int) -> BotState:
@@ -292,6 +469,33 @@ def _lang_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+async def _ensure_started(update: Update, context: ContextTypes.DEFAULT_TYPE, pending_text: str | None = None) -> bool:
+    """If user is UNREGISTERED: new user → show language choice and store pending_text (return False); existing user (e.g. after restart) → set ACTIVE (return True). Returns True if handler should continue processing the message."""
+    if not update.message or not update.message.from_user:
+        return True
+    tid = update.message.from_user.id
+    if _get_state(tid) != BotState.UNREGISTERED:
+        return True
+    pool: asyncpg.Pool = context.bot_data["pool"]
+    async with pool.acquire() as conn:
+        user = await get_user_by_telegram_id(conn, str(tid))
+    if user is None:
+        async with pool.acquire() as conn:
+            await create_user(conn, str(tid))
+            if str(tid) in _get_allowed_upload_user_ids():
+                await update_role(conn, str(tid), "candidate")
+        _set_state(tid, BotState.WAITING_HASH)
+        if pending_text and pending_text.strip():
+            _pending_message[tid] = pending_text.strip()
+        await update.message.reply_text(
+            _t("choose_language", "en"),
+            reply_markup=_lang_keyboard(),
+        )
+        return False
+    _set_state(tid, BotState.ACTIVE)
+    return True
+
+
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.message.from_user:
         return
@@ -308,7 +512,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 await update_role(conn, str(tid), "candidate")
         _set_state(tid, BotState.WAITING_HASH)
         await update.message.reply_text(
-            "Выберите язык / Choose language:",
+            _t("choose_language", "en"),
             reply_markup=_lang_keyboard(),
         )
         return
@@ -322,11 +526,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     _set_state(tid, BotState.ACTIVE)
     lang = str(user.get("language") or "en")
     kbd = _menu_keyboard(role, str(user.get("mode") or ""), lang)
-    if role == "admin":
-        m = str(user.get("mode") or "candidate")
-        menu = f"Режим: {m}. /switch — переключить." if lang == "ru" else f"Mode: {m}. /switch to toggle."
-    else:
-        menu = "Готово. /lang — язык." if lang == "ru" else "Ready. /lang for language."
+    menu = _t("menu_mode_admin", lang, mode=str(user.get("mode") or "candidate")) if role == "admin" else _t("menu_ready", lang)
     await update.message.reply_text(menu, reply_markup=kbd)
 
 
@@ -345,19 +545,26 @@ async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if n > 0:
         _set_state(tid, BotState.ACTIVE)
-        text = "Язык обновлён. / Language updated." if lang == "en" else "Язык обновлён."
-        await query.edit_message_text(text)
+        await query.edit_message_text(_t("language_updated", lang))
         role = user.get("role") if user else None
         mode = str(user.get("mode") or "") if user else ""
         kbd = _menu_keyboard(role, mode, lang)
-        menu = "Готово. /lang — язык." if lang == "ru" else "Ready. /lang for language."
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=menu,
+            text=_t("menu_ready", lang),
             reply_markup=kbd,
         )
+        pending = _pending_message.pop(tid, None)
+        if pending:
+            await _process_chat_message(
+                context,
+                query.message.chat_id,
+                tid,
+                pending,
+                lang,
+            )
     else:
-        await query.edit_message_text("Ошибка. / Error.")
+        await query.edit_message_text(_t("error_generic", "en"))
 
 
 async def _do_link(
@@ -368,11 +575,12 @@ async def _do_link(
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
+    if not await _ensure_started(update, context):
+        return
     pool: asyncpg.Pool = context.bot_data["pool"]
     async with pool.acquire() as conn:
         user = await get_user_by_telegram_id(conn, str(tid))
     if user is None:
-        await update.message.reply_text("Сначала /start. / Use /start first.")
         return
     async with pool.acquire() as conn:
         ok, msg, _ = await link_hash(conn, str(tid), hash_value)
@@ -396,7 +604,7 @@ async def switch_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     async with pool.acquire() as conn:
         user = await get_user_by_telegram_id(conn, str(tid))
     if user is None or user.get("role") != "admin":
-        await update.message.reply_text("Доступ запрещён. / Access denied.")
+        await update.message.reply_text(_t("access_denied", str(user.get("language") or "en") if user else "en"))
         return
     cur = str(user.get("mode") or "candidate")
     new_mode = "hr" if cur == "candidate" else "candidate"
@@ -404,8 +612,7 @@ async def switch_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update_mode(conn, str(tid), new_mode)
     lang = str(user.get("language") or "en")
     kbd = _menu_keyboard("admin", new_mode, lang)
-    msg = f"Режим: {new_mode}." if lang == "ru" else f"Mode: {new_mode}."
-    await update.message.reply_text(msg, reply_markup=kbd)
+    await update.message.reply_text(_t("mode_switched", lang, mode=new_mode), reply_markup=kbd)
 
 
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -436,9 +643,12 @@ async def link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     args = (context.args or [])
     if not args:
         _set_state(tid, BotState.WAITING_LINK_TOKEN)
-        await update.message.reply_text(
-            "Введите токен кандидата. / Enter candidate token.",
-        )
+        lang = "en"
+        async with pool.acquire() as conn:
+            u = await get_user_by_telegram_id(conn, str(tid))
+            if u:
+                lang = str(u.get("language") or "en")
+        await update.message.reply_text(_t("enter_candidate_token", lang))
         return
     await _do_link(update, context, args[0])
 
@@ -448,19 +658,20 @@ async def hash_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
+    if not await _ensure_started(update, context):
+        return
     pool: asyncpg.Pool = context.bot_data["pool"]
 
     async with pool.acquire() as conn:
         user = await get_user_by_telegram_id(conn, str(tid))
 
     if user is None:
-        await update.message.reply_text("Сначала /start. / Use /start first.")
         return
 
     role = user.get("role")
     mode = user.get("mode")
     if not _is_candidate_eligible(role, str(mode) if mode else None):
-        await update.message.reply_text("Доступ запрещён. / Access denied.")
+        await update.message.reply_text(_t("access_denied", str(user.get("language") or "en")))
         return
 
     token = generate_hash_token()
@@ -479,7 +690,7 @@ async def lang_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     args = (context.args or [])
     if not args or args[0] not in ("ru", "en"):
         await update.message.reply_text(
-            "Использование: /lang ru или /lang en\nUsage: /lang ru or /lang en",
+            _t("lang_usage", "en"),
         )
         return
     lang = args[0]
@@ -500,7 +711,7 @@ async def lang_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         text = "Язык обновлён." if lang == "ru" else "Language updated."
         await update.message.reply_text(text, reply_markup=kbd)
     else:
-        await update.message.reply_text("Пользователь не найден. / User not found.")
+        await update.message.reply_text(_t("user_not_found", "en"))
 
 
 async def match_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -508,26 +719,22 @@ async def match_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
+    if not await _ensure_started(update, context):
+        return
     pool: asyncpg.Pool = context.bot_data["pool"]
     async with pool.acquire() as conn:
         user = await get_user_by_telegram_id(conn, str(tid))
     if user is None:
-        await update.message.reply_text("Сначала /start. / Use /start first.")
         return
     if not _is_hr_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
-        await update.message.reply_text("Только для рекрутеров. / Recruiters only.")
+        await update.message.reply_text(_t("recruiters_only", str(user.get("language") or "en")))
         return
     dialog_owner_id = user.get("dialog_owner_id")
     if not dialog_owner_id:
-        await update.message.reply_text(
-            "Свяжитесь с кандидатом через /link.\nUse /link to link to a candidate.",
-        )
+        await update.message.reply_text(_t("use_link_first", str(user.get("language") or "en")))
         return
     _set_state(tid, BotState.WAITING_VACANCY_TEXT)
-    await update.message.reply_text(
-        "Отправьте файл в формате doc(x)/pdf/txt или краткое описание (не больше 1 сообщения телеграм).\n"
-        "Send a file (doc/docx/pdf/txt) or brief description (max 1 Telegram message).",
-    )
+    await update.message.reply_text(_t("send_vacancy_file", str(user.get("language") or "en")))
 
 
 async def update_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -535,32 +742,24 @@ async def update_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
+    if not await _ensure_started(update, context):
+        return
     pool: asyncpg.Pool = context.bot_data["pool"]
 
     async with pool.acquire() as conn:
         user = await get_user_by_telegram_id(conn, str(tid))
 
     if user is None:
-        await update.message.reply_text("Сначала /start. / Use /start first.")
         return
 
     role = user.get("role")
     mode = user.get("mode")
     if not _is_candidate_eligible(role, str(mode) if mode else None):
-        await update.message.reply_text("Доступ запрещён. / Access denied.")
+        await update.message.reply_text(_t("access_denied", str(user.get("language") or "en")))
         return
 
     _set_state(tid, BotState.RESUME_PENDING)
-    await update.message.reply_text(
-        "Загрузите резюме в формате .txt (макс. 1 МБ).\n"
-        "Upload your resume as .txt file (max 1 MB).",
-    )
-
-
-VACANCY_REJECT_MSG = (
-    "Формат не поддерживается. Используйте doc(x)/pdf/txt.\n"
-    "Format not supported. Use doc/docx/pdf/txt."
-)
+    await update.message.reply_text(_t("upload_resume_txt", str(user.get("language") or "en")))
 
 
 async def _do_match_vacancy(
@@ -574,15 +773,14 @@ async def _do_match_vacancy(
         user = await get_user_by_telegram_id(conn, str(tid))
     if user is None or not _is_hr_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
         return
+    lang = str(user.get("language") or "en")
     dialog_owner_id = user.get("dialog_owner_id")
     if not dialog_owner_id:
-        await update.message.reply_text(
-            "Связь с кандидатом потеряна. Используйте /link.\nLink lost. Use /link.",
-        )
+        await update.message.reply_text(_t("link_lost", lang))
         return
     base_url = os.getenv("BASE_API_URL", "").rstrip("/")
     if not base_url:
-        await update.message.reply_text("Ошибка сервиса. / Service error.")
+        await update.message.reply_text(_t("service_error", lang))
         return
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -592,7 +790,7 @@ async def _do_match_vacancy(
             )
     except Exception as e:
         logger.exception("Match API error: %s", e)
-        await update.message.reply_text("Ошибка запроса. / Request error.")
+        await update.message.reply_text(_t("request_error", lang))
         return
     if r.status_code != 200:
         try:
@@ -600,22 +798,20 @@ async def _do_match_vacancy(
             d = d[0] if isinstance(d, list) and d else d
             err = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
         except Exception:
-            err = "Ошибка. / Error."
+            err = _t("error_generic", lang)
         await update.message.reply_text(str(err)[:500])
         return
     data = r.json()
     if not isinstance(data, list):
-        await update.message.reply_text("Ошибка формата. / Invalid response.")
+        await update.message.reply_text(_t("invalid_response", lang))
         return
     if not data:
-        await update.message.reply_text(
-            "Нет результатов (нет документов кандидата).\nNo results (no candidate documents).",
-        )
+        await update.message.reply_text(_t("no_results", lang))
         return
     item = data[0]
     score = item.get("relevance_score", 0)
     snippets = item.get("matched_snippets") or []
-    lines = [f"Релевантность: {score:.2f}\nRelevance: {score:.2f}"]
+    lines = [_t("relevance", lang, score=score)]
     for i, s in enumerate(snippets[:5], 1):
         t = str(s)
         lines.append(f"\n[{i}] {t[:300]}{'...' if len(t) > 300 else ''}")
@@ -627,6 +823,8 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not update.message or not update.message.from_user or not update.message.document:
         return
     tid = update.message.from_user.id
+    if not await _ensure_started(update, context):
+        return
     doc = update.message.document
     state = _get_state(tid)
     pool: asyncpg.Pool = context.bot_data["pool"]
@@ -636,6 +834,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if user is None:
         return
 
+    lang = str(user.get("language") or "en")
     filename = doc.file_name or ""
     hr_with_dialog = _is_hr_eligible(
         user.get("role"), str(user.get("mode")) if user.get("mode") else None
@@ -643,23 +842,21 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if hr_with_dialog:
         if not is_vacancy_file(filename):
-            await update.message.reply_text(VACANCY_REJECT_MSG)
+            await update.message.reply_text(_t("vacancy_format", lang))
             return
         if doc.file_size and doc.file_size > MAX_VACANCY_FILE_BYTES:
-            await update.message.reply_text(
-                f"Файл слишком большой (макс. 5 МБ).\nFile too large (max 5 MB).",
-            )
+            await update.message.reply_text(_t("file_too_large_5mb", lang))
             return
         try:
             tg_file = await context.bot.get_file(doc.file_id)
             raw = await tg_file.download_as_bytearray()
         except Exception as e:
             logger.exception("Failed to download vacancy file: %s", e)
-            await update.message.reply_text("Не удалось загрузить файл. / Failed to download file.")
+            await update.message.reply_text(_t("download_failed", lang))
             return
         vacancy_text = extract_vacancy_text(filename, bytes(raw))
         if not vacancy_text or not vacancy_text.strip():
-            await update.message.reply_text(VACANCY_REJECT_MSG)
+            await update.message.reply_text(_t("vacancy_format", lang))
             return
         _set_state(tid, BotState.ACTIVE)
         await _do_match_vacancy(update, context, pool, vacancy_text.strip())
@@ -673,20 +870,18 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     filename = doc.file_name or "resume.txt"
     if not filename.lower().endswith(".txt"):
         _set_state(tid, BotState.ACTIVE)
-        await update.message.reply_text("Только .txt. / Only .txt files allowed.")
+        await update.message.reply_text(_t("only_txt", lang))
         return
 
     if doc.file_size and doc.file_size > MAX_RESUME_SIZE_BYTES:
         _set_state(tid, BotState.ACTIVE)
-        await update.message.reply_text(
-            f"Файл слишком большой (макс. 1 МБ). / File too large (max 1 MB).",
-        )
+        await update.message.reply_text(_t("file_too_large_1mb", lang))
         return
 
     base_url = os.getenv("BASE_API_URL", "").rstrip("/")
     if not base_url:
         _set_state(tid, BotState.ACTIVE)
-        await update.message.reply_text("Ошибка сервиса. / Service error.")
+        await update.message.reply_text(_t("service_error", lang))
         logger.error("BASE_API_URL not set")
         return
 
@@ -696,12 +891,12 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     except Exception as e:
         logger.exception("Failed to download file: %s", e)
         _set_state(tid, BotState.ACTIVE)
-        await update.message.reply_text("Не удалось загрузить файл. / Failed to download file.")
+        await update.message.reply_text(_t("download_failed", lang))
         return
 
     if len(raw) > MAX_RESUME_SIZE_BYTES:
         _set_state(tid, BotState.ACTIVE)
-        await update.message.reply_text("Файл слишком большой (макс. 1 МБ). / File too large (max 1 MB).")
+        await update.message.reply_text(_t("file_too_large_1mb", lang))
         return
 
     owner_id = str(tid)
@@ -718,7 +913,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     except Exception as e:
         logger.exception("Resume upload API error: %s", e)
         _set_state(tid, BotState.ACTIVE)
-        await update.message.reply_text("Ошибка при загрузке. / Upload error.")
+        await update.message.reply_text(_t("upload_error", lang))
         return
 
     _set_state(tid, BotState.ACTIVE)
@@ -727,7 +922,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         body = r.json()
         job_id = body.get("job_id", "")
         sent = await update.message.reply_text(
-            f"Резюме принято (job_id: {job_id}).\nResume accepted.",
+            _t("resume_accepted", lang, job_id=job_id),
         )
         if sent:
             asyncio.create_task(
@@ -747,15 +942,17 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             d = r.text or "Unknown error"
         d = d[0] if isinstance(d, list) and d else d
         d = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
-        await update.message.reply_text(f"Ошибка загрузки: {d}.\nUpload failed.")
+        await update.message.reply_text(_t("upload_failed", lang, detail=d))
 
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
-    state = _get_state(tid)
     text = (update.message.text or "").strip()
+    if not await _ensure_started(update, context, pending_text=text):
+        return
+    state = _get_state(tid)
 
     if state == BotState.WAITING_LINK_TOKEN:
         _set_state(tid, BotState.ACTIVE)
@@ -767,20 +964,16 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             user = await get_user_by_telegram_id(conn, str(tid))
         if user is None or not _is_hr_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
             _set_state(tid, BotState.ACTIVE)
-            await update.message.reply_text("Ошибка. / Error.")
+            await update.message.reply_text(_t("error_generic", str(user.get("language") or "en") if user else "en"))
             return
+        lang = str(user.get("language") or "en")
         dialog_owner_id = user.get("dialog_owner_id")
         if not dialog_owner_id:
             _set_state(tid, BotState.ACTIVE)
-            await update.message.reply_text(
-                "Связь с кандидатом потеряна. Используйте /link.\nLink lost. Use /link.",
-            )
+            await update.message.reply_text(_t("link_lost", lang))
             return
         if len(text) >= MAX_VACANCY_TEXT_CHARS:
-            await update.message.reply_text(
-                "Описание слишком большое, отправьте файл в формате doc(x)/pdf/txt.\n"
-                "Description too long. Send a file in doc/docx/pdf/txt format.",
-            )
+            await update.message.reply_text(_t("description_too_long", lang))
             return
         _set_state(tid, BotState.ACTIVE)
         await _do_match_vacancy(update, context, pool, text)
@@ -815,7 +1008,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if action == "switch" and role == "admin":
                 await switch_handler(update, context)
                 return
-            await update.message.reply_text("Доступ запрещён. / Access denied.")
+            await update.message.reply_text(_t("access_denied", str(user.get("language") or "en")))
             return
 
     if state == BotState.WAITING_HASH:
@@ -824,10 +1017,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             pool: asyncpg.Pool = context.bot_data["pool"]
             async with pool.acquire() as conn:
                 await update_language(conn, str(tid), t)
-            await update.message.reply_text("Язык выбран. Ожидание хэша.")
+            await update.message.reply_text(_t("language_chosen_waiting_hash", t))
         else:
             await update.message.reply_text(
-                "Выберите язык: ru или en\nChoose language: ru or en",
+                _t("choose_lang_ru_en", "en"),
                 reply_markup=_lang_keyboard(),
             )
         return
@@ -837,76 +1030,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         async with pool.acquire() as conn:
             user = await get_user_by_telegram_id(conn, str(tid))
         if user is not None:
-            role = user.get("role")
-            mode = str(user.get("mode")) if user.get("mode") else None
-            owner_id: str | None = None
-            if _is_candidate_eligible(role, mode):
-                owner_id = str(tid)
-            elif _is_hr_eligible(role, mode):
-                owner_id = user.get("dialog_owner_id")
-                if not owner_id:
-                    await update.message.reply_text(
-                        "Свяжитесь с кандидатом через /link.\nUse /link to link to a candidate.",
-                    )
-                    return
-            if owner_id:
-                base_url = os.getenv("BASE_API_URL", "").rstrip("/")
-                if not base_url:
-                    await update.message.reply_text("Ошибка сервиса. / Service error.")
-                    return
-                sent = await update.message.reply_text("Обработка... / Processing...")
-                try:
-                    async with httpx.AsyncClient(timeout=30.0) as client:
-                        r = await client.post(
-                            f"{base_url}/chat",
-                            params={"owner_id": owner_id},
-                            json={"message": text},
-                        )
-                except Exception as e:
-                    logger.exception("Chat API error: %s", e)
-                    if sent:
-                        await context.bot.edit_message_text(
-                            chat_id=sent.chat_id,
-                            message_id=sent.message_id,
-                            text="Ошибка запроса. / Request error.",
-                        )
-                    return
-                if r.status_code != 202:
-                    err = "Ошибка. / Error."
-                    try:
-                        d = r.json().get("detail", r.text) if r.text else ""
-                        d = d[0] if isinstance(d, list) and d else d
-                        d = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
-                        if d:
-                            err = str(d)[:500]
-                    except Exception:
-                        pass
-                    if sent:
-                        await context.bot.edit_message_text(
-                            chat_id=sent.chat_id,
-                            message_id=sent.message_id,
-                            text=err,
-                        )
-                    return
-                body = r.json()
-                msg_id = body.get("message_id", "")
-                if not msg_id:
-                    if sent:
-                        await context.bot.edit_message_text(
-                            chat_id=sent.chat_id,
-                            message_id=sent.message_id,
-                            text="Ошибка ответа. / Response error.",
-                        )
-                    return
-                asyncio.create_task(
-                    _poll_and_edit_chat_response(
-                        context.bot,
-                        base_url,
-                        msg_id,
-                        sent.chat_id,
-                        sent.message_id,
-                    )
-                )
+            lang = str(user.get("language") or "en")
+            await _process_chat_message(
+                context,
+                update.message.chat_id,
+                tid,
+                text,
+                lang,
+            )
 
 
 async def ping_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
