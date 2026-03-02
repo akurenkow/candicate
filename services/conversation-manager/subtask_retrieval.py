@@ -71,6 +71,18 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
     query = subtask.query
     chunks = await _retrieve(query, trace_id, owner_id, use_filters)
 
+    # If we filtered by company_name and got 0 chunks (e.g. name mismatch in index), retry without company filter
+    # so we still return semantic matches instead of the "upload resume" stub.
+    if not chunks and use_filters and "company_name" in use_filters:
+        fallback_filters = {k: v for k, v in use_filters.items() if k != "company_name"}
+        fallback_filters = fallback_filters if fallback_filters else None
+        chunks = await _retrieve(query, trace_id, owner_id, fallback_filters)
+        if chunks:
+            logger.info(
+                "run_retrieval company_name filter returned 0 chunks; using %s chunks from fallback (no company filter)",
+                len(chunks),
+            )
+
     if not chunks:
         return SubtaskResult.failed_retrieval()
 
@@ -112,6 +124,10 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
         clarification_attempts += 1
 
         chunks = await _retrieve(query, trace_id, owner_id, use_filters)
+        if not chunks and use_filters and "company_name" in use_filters:
+            fallback_filters = {k: v for k, v in use_filters.items() if k != "company_name"}
+            fallback_filters = fallback_filters if fallback_filters else None
+            chunks = await _retrieve(query, trace_id, owner_id, fallback_filters)
         if not chunks:
             return SubtaskResult.failed_retrieval()
         max_score_val = _max_score(chunks)
