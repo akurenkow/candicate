@@ -33,11 +33,14 @@ COMPOSE_GPU_FILE = "docker-compose.gpu.yml"
 def _get_python_for_tests() -> str:
     """
     Python-интерпретатор для запуска тестов.
-    Использует PYTHON_TEST_EXECUTABLE из .env, если задан; иначе sys.executable.
+    Использует PYTHON_TEST_EXECUTABLE из .env, если задан и файл существует; иначе sys.executable.
     Позволяет зафиксировать версию (например 3.11) при нескольких установленных.
+    На VPS/другой ОС путь из .env может быть от другой машины — тогда используется текущий интерпретатор.
     """
     exe = os.environ.get("PYTHON_TEST_EXECUTABLE", "").strip()
-    return exe if exe else sys.executable
+    if exe and os.path.isfile(exe) and os.access(exe, os.X_OK):
+        return exe
+    return sys.executable
 
 
 def run_command(cmd: List[str], description: str) -> bool:
