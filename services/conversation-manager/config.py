@@ -6,15 +6,14 @@ from urllib.parse import quote_plus
 
 # Загружаем .env из корня репозитория (при локальном запуске или если смонтирован в контейнер)
 _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-if _env_path.exists():
+try:
     from dotenv import load_dotenv
-    load_dotenv(_env_path)
-else:
-    try:
-        from dotenv import load_dotenv
+    if _env_path.exists():
+        load_dotenv(_env_path)
+    else:
         load_dotenv()  # cwd или родительские каталоги
-    except ImportError:
-        pass
+except ImportError:
+    pass
 
 
 def get_env(key: str, default: str = "") -> str:

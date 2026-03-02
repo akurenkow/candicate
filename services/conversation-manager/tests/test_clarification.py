@@ -102,14 +102,15 @@ async def test_score_just_below_answer_threshold_triggers_clarification():
             return _chunks(0.64)
         return _chunks(0.7)
 
-    with patch("subtask_retrieval.retrieval_search", new_callable=AsyncMock, side_effect=mock_retrieve):
-        with patch("subtask_retrieval.gen_clarification", new_callable=AsyncMock) as m_clarify:
-            m_clarify.return_value = GenerateResult(success=True, output="Which topic?", attempts=1)
-            with patch("subtask_retrieval.generation_generate", new_callable=AsyncMock, return_value=GenerateResult(success=True, output="Done.", attempts=1)):
-                from subtask_retrieval import run_retrieval
-                result = await run_retrieval(_subtask("original q"), trace_id="t1")
-                assert result.kind == SUCCESS
-                assert m_clarify.call_count >= 1
+    with patch("subtask_retrieval.CLARIFY_THRESHOLD", 0.35), patch("subtask_retrieval.ANSWER_THRESHOLD", 0.65), patch("subtask_retrieval.MAX_CLARIFICATION_ATTEMPTS", 2):
+        with patch("subtask_retrieval.retrieval_search", new_callable=AsyncMock, side_effect=mock_retrieve):
+            with patch("subtask_retrieval.gen_clarification", new_callable=AsyncMock) as m_clarify:
+                m_clarify.return_value = GenerateResult(success=True, output="Which topic?", attempts=1)
+                with patch("subtask_retrieval.generation_generate", new_callable=AsyncMock, return_value=GenerateResult(success=True, output="Done.", attempts=1)):
+                    from subtask_retrieval import run_retrieval
+                    result = await run_retrieval(_subtask("original q"), trace_id="t1")
+                    assert result.kind == SUCCESS
+                    assert m_clarify.call_count >= 1
 
 
 @pytest.mark.asyncio
@@ -135,7 +136,7 @@ async def test_score_at_answer_threshold_normal_flow_no_clarification():
 
 @pytest.mark.asyncio
 async def test_clarification_retry_limit_enforcement():
-    """After MAX_CLARIFICATION_ATTEMPTS retries with score still in [CLARIFY, ANSWER) -> failed_retrieval."""
+    """After MAX_CLARIFICATION_ATTEMPTS retries with score still in [CLARIFY, ANSWER) -> failed_low_score (user sees low_relevance stub)."""
     from generation_client import GenerateResult
     retrieve_calls = 0
 
@@ -153,7 +154,7 @@ async def test_clarification_retry_limit_enforcement():
                 with patch("subtask_retrieval.generation_generate", new_callable=AsyncMock):
                     from subtask_retrieval import run_retrieval
                     result = await run_retrieval(_subtask(), trace_id="t1")
-                    assert result.kind == FAILED_RETRIEVAL
+                    assert result.kind == FAILED_LOW_SCORE
                     assert retrieve_calls <= 1 + 2
 
 
@@ -214,7 +215,7 @@ async def test_clarification_message_saved_to_history():
 
 @pytest.mark.asyncio
 async def test_fallback_after_retry_exhaustion():
-    """Score always in [CLARIFY, ANSWER) and MAX_CLARIFICATION_ATTEMPTS exhausted -> failed_retrieval."""
+    """Score always in [CLARIFY, ANSWER) and MAX_CLARIFICATION_ATTEMPTS exhausted -> failed_low_score (low_relevance stub)."""
     from generation_client import GenerateResult
     async def always_ambiguous(*args, **kwargs):
         return _chunks(0.5)
@@ -227,7 +228,7 @@ async def test_fallback_after_retry_exhaustion():
             with patch("subtask_retrieval.gen_clarification", new_callable=AsyncMock, side_effect=mock_clarify):
                 from subtask_retrieval import run_retrieval
                 result = await run_retrieval(_subtask(), trace_id="t1")
-                assert result.kind == FAILED_RETRIEVAL
+                assert result.kind == FAILED_LOW_SCORE
 
 
 @pytest.mark.asyncio
