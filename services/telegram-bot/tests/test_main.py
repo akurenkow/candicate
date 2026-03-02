@@ -26,6 +26,8 @@ from main import (
     _lang_keyboard,
     _looks_like_token,
     _menu_keyboard,
+    _message_has_phone,
+    _message_has_url,
     _set_state,
     _t,
     document_handler,
@@ -51,13 +53,15 @@ def _text_matches_key(reply_text: str, key: str, lang: str | None = None) -> boo
     return any(reply_text == TEXTS.get(l, {}).get(key) for l in TEXTS if key in TEXTS.get(l, {}))
 
 
-def _make_update_message(tid: int = 12345, text: str = "", chat_id: int = 1):
+def _make_update_message(tid: int = 12345, text: str = "", chat_id: int = 1, entities=None, message_id: int = 100):
     u = MagicMock()
     u.message = MagicMock()
     u.message.from_user = MagicMock()
     u.message.from_user.id = tid
     u.message.text = text
     u.message.chat_id = chat_id
+    u.message.entities = entities or []
+    u.message.message_id = message_id
     u.callback_query = None
     return u
 
@@ -107,6 +111,72 @@ def test_looks_like_token_empty():
 
 def test_looks_like_token_invalid_chars():
     assert _looks_like_token("a" * 20 + "!@#") is False
+
+
+def test_message_has_url_no_message():
+    u = MagicMock()
+    u.message = None
+    assert _message_has_url(u) is False
+
+
+def test_message_has_url_no_text():
+    u = _make_update_message(text="")
+    u.message.text = None
+    assert _message_has_url(u) is False
+
+
+def test_message_has_url_entity_url():
+    u = _make_update_message(text="see https://example.com")
+    u.message.entities = [MagicMock(type="url")]
+    assert _message_has_url(u) is True
+
+
+def test_message_has_url_entity_text_link():
+    u = _make_update_message(text="click here")
+    u.message.entities = [MagicMock(type="text_link")]
+    assert _message_has_url(u) is True
+
+
+def test_message_has_url_regex():
+    u = _make_update_message(text="visit https://example.com/path")
+    u.message.entities = []
+    assert _message_has_url(u) is True
+
+
+def test_message_has_url_no_url():
+    u = _make_update_message(text="no link here")
+    u.message.entities = []
+    assert _message_has_url(u) is False
+
+
+def test_message_has_phone_no_message():
+    u = MagicMock()
+    u.message = None
+    assert _message_has_phone(u) is False
+
+
+def test_message_has_phone_no_text():
+    u = _make_update_message(text="")
+    u.message.text = None
+    assert _message_has_phone(u) is False
+
+
+def test_message_has_phone_entity():
+    u = _make_update_message(text="call me")
+    u.message.entities = [MagicMock(type="phone_number")]
+    assert _message_has_phone(u) is True
+
+
+def test_message_has_phone_regex():
+    u = _make_update_message(text="+7 999 123-45-67")
+    u.message.entities = []
+    assert _message_has_phone(u) is True
+
+
+def test_message_has_phone_no_phone():
+    u = _make_update_message(text="no number")
+    u.message.entities = []
+    assert _message_has_phone(u) is False
 
 
 def test_t_ru():
@@ -604,6 +674,77 @@ async def test_message_handler_waiting_hash_invalid_lang(pool_mock):
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "choose_lang_ru_en", "en")
     main_mod._user_states.pop(77793, None)
+
+
+@pytest.mark.asyncio
+async def test_message_handler_recruiter_with_url_forwards_to_candidate(pool_mock):
+    u = _make_update_message(tid=77795, text="see https://job.example.com", message_id=101)
+    u.message.entities = [MagicMock(type="url")]
+    u.message.reply_text = AsyncMock()
+    ctx = _make_context(pool_mock)
+    ctx.bot.forward_message = AsyncMock()
+    _set_state(77795, BotState.ACTIVE)
+    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "999888", "language": "en"})):
+        with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
+            await message_handler(u, ctx)
+    ctx.bot.forward_message.assert_called_once()
+    call_kw = ctx.bot.forward_message.call_args[1]
+    assert call_kw["chat_id"] == 999888
+    assert call_kw["from_chat_id"] == u.message.chat_id
+    assert call_kw["message_id"] == 101
+    u.message.reply_text.assert_not_called()
+    main_mod._user_states.pop(77795, None)
+
+
+@pytest.mark.asyncio
+async def test_message_handler_recruiter_with_phone_replies_and_forwards(pool_mock):
+    u = _make_update_message(tid=77796, text="my number +7 999 123-45-67", message_id=102)
+    u.message.entities = [MagicMock(type="phone_number")]
+    u.message.reply_text = AsyncMock()
+    ctx = _make_context(pool_mock)
+    ctx.bot.forward_message = AsyncMock()
+    _set_state(77796, BotState.ACTIVE)
+    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "999777", "language": "ru"})):
+        with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
+            await message_handler(u, ctx)
+    u.message.reply_text.assert_called_once()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "phone_escalation_reply", "ru")
+    ctx.bot.forward_message.assert_called_once()
+    call_kw = ctx.bot.forward_message.call_args[1]
+    assert call_kw["chat_id"] == 999777
+    assert call_kw["message_id"] == 102
+    main_mod._user_states.pop(77796, None)
+
+
+@pytest.mark.asyncio
+async def test_message_handler_recruiter_with_url_regex_forwards(pool_mock):
+    u = _make_update_message(tid=77797, text="check http://example.org", message_id=103)
+    u.message.entities = []
+    u.message.reply_text = AsyncMock()
+    ctx = _make_context(pool_mock)
+    ctx.bot.forward_message = AsyncMock()
+    _set_state(77797, BotState.ACTIVE)
+    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "888777", "language": "en"})):
+        with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
+            await message_handler(u, ctx)
+    ctx.bot.forward_message.assert_called_once()
+    assert ctx.bot.forward_message.call_args[1]["chat_id"] == 888777
+    main_mod._user_states.pop(77797, None)
+
+
+@pytest.mark.asyncio
+async def test_message_handler_recruiter_plain_text_calls_process_chat(pool_mock):
+    u = _make_update_message(tid=77798, text="just a question", message_id=104)
+    u.message.entities = []
+    u.message.reply_text = AsyncMock()
+    ctx = _make_context(pool_mock)
+    _set_state(77798, BotState.ACTIVE)
+    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "888666", "language": "en"})):
+        with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
+            with patch.object(main_mod, "_process_chat_message", AsyncMock()) as process_chat:
+                await message_handler(u, ctx)
+    process_chat.assert_called_once()
+    main_mod._user_states.pop(77798, None)
 
 
 @pytest.mark.asyncio
