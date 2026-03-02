@@ -89,7 +89,7 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
         max_score_val = max(max_score_val, ANSWER_THRESHOLD)
 
     if max_score_val < CLARIFY_THRESHOLD:
-        return SubtaskResult.failed_retrieval()
+        return SubtaskResult.failed_low_score()
 
     if not any((c.get("text") or "").strip() for c in chunks):
         return SubtaskResult.failed_no_usable_text()
@@ -99,13 +99,13 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
 
     while max_score_val < ANSWER_THRESHOLD:
         if clarification_attempts >= MAX_CLARIFICATION_ATTEMPTS:
-            return SubtaskResult.failed_retrieval()
+            return SubtaskResult.failed_low_score()
 
         t0 = time.perf_counter()
         clar = await gen_clarification(query, chunks, history, trace_id=trace_id)
         record_generation_duration(time.perf_counter() - t0, "query", SERVICE_NAME)
         if not clar.success or not (clar.output or "").strip():
-            return SubtaskResult.failed_retrieval()
+            return SubtaskResult.failed_low_score()
 
         history.append({"role": "assistant", "content": clar.output})
         query = _refined_query(subtask.query, clar.output)
@@ -118,7 +118,7 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
         if any((c.get("metadata") or {}).get("section_kind") == "general" for c in chunks):
             max_score_val = max(max_score_val, ANSWER_THRESHOLD)
         if max_score_val < CLARIFY_THRESHOLD:
-            return SubtaskResult.failed_retrieval()
+            return SubtaskResult.failed_low_score()
         if not any((c.get("text") or "").strip() for c in chunks):
             return SubtaskResult.failed_no_usable_text()
 

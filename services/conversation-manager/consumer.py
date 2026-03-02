@@ -11,7 +11,7 @@ from aio_pika import IncomingMessage
 
 import asyncpg
 
-from config import RAG_QUEUE, FALLBACK_RESPONSE, NO_DOCUMENTS_STUB_RESPONSE, MODEL_WORKING_LANGUAGE
+from config import RAG_QUEUE, FALLBACK_RESPONSE, NO_DOCUMENTS_STUB_RESPONSE, LOW_RELEVANCE_STUB_RESPONSE, MODEL_WORKING_LANGUAGE
 from db import get_message, update_status, create_pool
 from lock import try_acquire_lock, release_lock, set_processing, release_stale_locks
 from state_machine import STATUS_LOCKED, STATUS_PROCESSING, STATUS_COMPLETED, STATUS_ESCALATED
@@ -20,7 +20,7 @@ from lang_detect import detect as detect_lang
 from translation_client import translate as translate_query
 from query_decomposition import decompose, Subtask
 from subtask_retrieval import run_retrieval
-from subtask_result import SubtaskResult, aggregate_results, FAILED_RETRIEVAL, FAILED_NO_USABLE_TEXT, FAILED_GENERATION
+from subtask_result import SubtaskResult, aggregate_results, FAILED_RETRIEVAL, FAILED_LOW_SCORE, FAILED_NO_USABLE_TEXT, FAILED_GENERATION
 from subtask_manager import SubtaskManager
 from post_process import post_process
 from response_cache import get_cached, set_cached
@@ -191,11 +191,22 @@ async def process_one(
         and err_msg == "no_documents_found"
         and fail_svc == "retrieval-service"
     )
+    low_relevance_stub = (
+        should_escalate
+        and bool(results)
+        and all(r.kind == FAILED_LOW_SCORE for r in results)
+    )
     if no_documents_stub:
         should_escalate = False
         err_msg = None
         fail_svc = None
         final_assistant_text = NO_DOCUMENTS_STUB_RESPONSE
+        final_assistant_text_translated = None
+    elif low_relevance_stub:
+        should_escalate = False
+        err_msg = None
+        fail_svc = None
+        final_assistant_text = LOW_RELEVANCE_STUB_RESPONSE
         final_assistant_text_translated = None
     elif should_escalate and pp.translation_failed:
         final_assistant_text = ""

@@ -45,6 +45,10 @@ NO_DOCUMENTS_STUB_RESPONSE = get_env(
     "NO_DOCUMENTS_STUB_RESPONSE",
     "Утром деньги, вечером стулья... Сначала загрузите резюме (/update). / Please upload your resume first (/update).",
 )
+LOW_RELEVANCE_STUB_RESPONSE = get_env(
+    "LOW_RELEVANCE_STUB_RESPONSE",
+    "В резюме по этому запросу не найдено достаточно релевантного. Уточните формулировку или загрузите обновлённое резюме (/update). / No sufficiently relevant content in the resume for this query. Rephrase or upload an updated resume (/update).",
+)
 RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "10"))
 MODEL_CONTEXT_LIMIT = int(os.getenv("MODEL_CONTEXT_LIMIT", "4096"))
 

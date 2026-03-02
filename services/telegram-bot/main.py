@@ -213,14 +213,14 @@ def _bot_error_message(key: str, lang: str, **kwargs: str | int) -> str:
     return _t(key, lang, **kwargs) + f" trace_id={trace_id}"
 
 
-def _menu_keyboard(role: str | None, mode: str | None, lang: str | None) -> ReplyKeyboardMarkup:
-    effective = "candidate" if (role == "admin" and mode != "hr") else (role or "candidate")
+def _menu_keyboard(role: str | None, mode: str | None, lang: str | None, dialog_owner_id: str | None = None) -> ReplyKeyboardMarkup:
+    effective = "candidate" if (role == "admin" and mode != "hr") else (role or "recruiter")
     if role == "admin":
         rows = [[KeyboardButton(_t("switch_mode", lang))]]
         if mode == "hr":
             rows.extend([
                 [KeyboardButton(_t("link_candidate", lang))],
-                [KeyboardButton(_t("match", lang)), KeyboardButton(_t("help", lang))],
+                [KeyboardButton(_t("match", lang)), KeyboardButton(_t("help", lang))] if dialog_owner_id else [KeyboardButton(_t("help", lang))],
             ])
         else:
             rows.extend([
@@ -230,7 +230,7 @@ def _menu_keyboard(role: str | None, mode: str | None, lang: str | None) -> Repl
     elif effective == "recruiter":
         rows = [
             [KeyboardButton(_t("link_candidate", lang))],
-            [KeyboardButton(_t("match", lang)), KeyboardButton(_t("help", lang))],
+            [KeyboardButton(_t("match", lang)), KeyboardButton(_t("help", lang))] if dialog_owner_id else [KeyboardButton(_t("help", lang))],
         ]
     else:
         rows = [
@@ -495,6 +495,9 @@ def _is_candidate_eligible(role, mode) -> bool:
 def _is_hr_eligible(role, mode) -> bool:
     if role == "recruiter":
         return True
+    if role is None:
+        # Пользователь не в списке кандидатов — считаем рекрутером до первой привязки по токену
+        return True
     if role == "admin" and mode == "hr":
         return True
     return False
@@ -572,7 +575,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         role = "candidate"
     _set_state(tid, BotState.ACTIVE)
     lang = str(user.get("language") or "en")
-    kbd = _menu_keyboard(role, str(user.get("mode") or ""), lang)
+    kbd = _menu_keyboard(role, str(user.get("mode") or ""), lang, user.get("dialog_owner_id"))
     menu = _t("menu_mode_admin", lang, mode=str(user.get("mode") or "candidate")) if role == "admin" else _t("menu_ready", lang)
     await update.message.reply_text(menu, reply_markup=kbd)
 
@@ -595,7 +598,7 @@ async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await query.edit_message_text(_t("language_updated", lang))
         role = user.get("role") if user else None
         mode = str(user.get("mode") or "") if user else ""
-        kbd = _menu_keyboard(role, mode, lang)
+        kbd = _menu_keyboard(role, mode, lang, user.get("dialog_owner_id") if user else None)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=_t("menu_ready", lang),
@@ -630,7 +633,7 @@ async def _do_link(
     if user is None:
         return
     async with pool.acquire() as conn:
-        ok, msg, _ = await link_hash(conn, str(tid), hash_value)
+        ok, msg, owner_id = await link_hash(conn, str(tid), hash_value)
     sent = await update.message.reply_text(msg)
     if ok and sent:
         try:
@@ -640,6 +643,14 @@ async def _do_link(
             )
         except Exception:
             pass
+        async with pool.acquire() as conn:
+            user = await get_user_by_telegram_id(conn, str(tid))
+        if user:
+            lang = str(user.get("language") or "en")
+            role = user.get("role")
+            mode = str(user.get("mode") or "")
+            kbd = _menu_keyboard(role, mode, lang, owner_id)
+            await update.message.reply_text(_t("menu_ready", lang), reply_markup=kbd)
 
 
 async def switch_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -658,7 +669,7 @@ async def switch_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     async with pool.acquire() as conn:
         await update_mode(conn, str(tid), new_mode)
     lang = str(user.get("language") or "en")
-    kbd = _menu_keyboard("admin", new_mode, lang)
+    kbd = _menu_keyboard("admin", new_mode, lang, user.get("dialog_owner_id") if new_mode == "hr" else None)
     await update.message.reply_text(_t("mode_switched", lang, mode=new_mode), reply_markup=kbd)
 
 
@@ -676,9 +687,12 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         text = _t("help_admin", lang)
     elif role == "recruiter" or (role == "admin" and mode == "hr"):
         text = _t("help_recruiter", lang)
-    else:
+    elif role == "candidate":
         text = _t("help_candidate", lang)
-    kbd = _menu_keyboard(role, mode, lang) if user else None
+    else:
+        # Пользователь не в БД или role is None — считаем рекрутером (не кандидат)
+        text = _t("help_recruiter", lang)
+    kbd = _menu_keyboard(role, mode, lang, user.get("dialog_owner_id") if user else None) if user else None
     await update.message.reply_text(text, reply_markup=kbd)
 
 
@@ -755,6 +769,7 @@ async def lang_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             user.get("role") if user else None,
             str(user.get("mode") or "") if user else "",
             lang,
+            user.get("dialog_owner_id") if user else None,
         )
         text = "Язык обновлён." if lang == "ru" else "Language updated."
         await update.message.reply_text(text, reply_markup=kbd)
@@ -1038,31 +1053,34 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         pool = context.bot_data["pool"]
         async with pool.acquire() as conn:
             user = await get_user_by_telegram_id(conn, str(tid))
+        role = user.get("role") if user else None
+        mode = str(user.get("mode") or "") if user else ""
+        action = BTN_TO_ACTION.get(text)
+        if not action:
+            return
+        if action == "help":
+            await help_handler(update, context)
+            return
+        if action == "link" and _is_hr_eligible(role, mode if mode else None):
+            await link_handler(update, context)
+            return
+        if action == "match" and _is_hr_eligible(role, mode if mode else None):
+            await match_handler(update, context)
+            return
         if user:
-            role = user.get("role")
-            mode = str(user.get("mode") or "")
-            action = BTN_TO_ACTION[text]
             if action == "update" and _is_candidate_eligible(role, mode if mode else None):
                 await update_handler(update, context)
                 return
             if action == "hash" and _is_candidate_eligible(role, mode if mode else None):
                 await hash_handler(update, context)
                 return
-            if action == "help":
-                await help_handler(update, context)
-                return
-            if action == "link" and _is_hr_eligible(role, mode if mode else None):
-                await link_handler(update, context)
-                return
-            if action == "match" and _is_hr_eligible(role, mode if mode else None):
-                await match_handler(update, context)
-                return
             if action == "switch" and role == "admin":
                 await switch_handler(update, context)
                 return
             msg_key = "candidates_only" if action in ("update", "hash") else "access_denied"
             await update.message.reply_text(_t(msg_key, str(user.get("language") or "en")))
-            return
+        else:
+            await update.message.reply_text(_t("access_denied", "en"))
 
     if state == BotState.WAITING_HASH:
         t = text.lower()

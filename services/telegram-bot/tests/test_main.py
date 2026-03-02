@@ -167,6 +167,10 @@ def test_is_hr_eligible_candidate():
     assert _is_hr_eligible("candidate", None) is False
 
 
+def test_is_hr_eligible_none_role_treated_as_recruiter():
+    assert _is_hr_eligible(None, None) is True
+
+
 def test_menu_keyboard_candidate():
     kbd = _menu_keyboard("candidate", None, "en")
     assert kbd is not None
@@ -179,7 +183,24 @@ def test_menu_keyboard_recruiter():
     kbd = _menu_keyboard("recruiter", None, "en")
     bts = [b.text for row in kbd.keyboard for b in row]
     assert TEXTS["en"]["link_candidate"] in bts
+    assert TEXTS["en"]["help"] in bts
+    assert TEXTS["en"]["match"] not in bts
+
+
+def test_menu_keyboard_recruiter_with_link():
+    kbd = _menu_keyboard("recruiter", None, "en", dialog_owner_id="owner123")
+    bts = [b.text for row in kbd.keyboard for b in row]
+    assert TEXTS["en"]["link_candidate"] in bts
     assert TEXTS["en"]["match"] in bts
+    assert TEXTS["en"]["help"] in bts
+
+
+def test_menu_keyboard_none_role_shows_recruiter():
+    kbd = _menu_keyboard(None, None, "en")
+    bts = [b.text for row in kbd.keyboard for b in row]
+    assert TEXTS["en"]["link_candidate"] in bts
+    assert TEXTS["en"]["help"] in bts
+    assert TEXTS["en"]["match"] not in bts
 
 
 def test_menu_keyboard_admin_hr_mode():
@@ -187,6 +208,13 @@ def test_menu_keyboard_admin_hr_mode():
     bts = [b.text for row in kbd.keyboard for b in row]
     assert TEXTS["en"]["switch_mode"] in bts
     assert TEXTS["en"]["link_candidate"] in bts
+    assert TEXTS["en"]["help"] in bts
+    assert TEXTS["en"]["match"] not in bts
+
+
+def test_menu_keyboard_admin_hr_mode_with_link():
+    kbd = _menu_keyboard("admin", "hr", "en", dialog_owner_id="owner456")
+    bts = [b.text for row in kbd.keyboard for b in row]
     assert TEXTS["en"]["match"] in bts
 
 
@@ -361,7 +389,7 @@ async def test_help_handler_no_user(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value=None)):
         await help_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert _text_matches_key(u.message.reply_text.call_args[0][0], "help_candidate", "en")
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "help_recruiter", "en")
 
 
 @pytest.mark.asyncio

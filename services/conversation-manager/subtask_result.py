@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 FAILED_RETRIEVAL = "failed_retrieval"
+FAILED_LOW_SCORE = "failed_low_score"
 FAILED_NO_USABLE_TEXT = "failed_no_usable_text"
 FAILED_GENERATION = "failed_generation"
 SUCCESS = "success"
@@ -13,7 +14,7 @@ PARTIAL_FAILURE_ANNOTATION = "Some parts of your question could not be answered.
 
 
 def _is_failure(kind: str) -> bool:
-    return kind in (FAILED_RETRIEVAL, FAILED_NO_USABLE_TEXT, FAILED_GENERATION)
+    return kind in (FAILED_RETRIEVAL, FAILED_LOW_SCORE, FAILED_NO_USABLE_TEXT, FAILED_GENERATION)
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,10 @@ class SubtaskResult:
     @classmethod
     def failed_retrieval(cls) -> SubtaskResult:
         return cls(kind=FAILED_RETRIEVAL)
+
+    @classmethod
+    def failed_low_score(cls) -> SubtaskResult:
+        return cls(kind=FAILED_LOW_SCORE)
 
     @classmethod
     def failed_no_usable_text(cls) -> SubtaskResult:
