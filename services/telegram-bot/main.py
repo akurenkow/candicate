@@ -61,7 +61,7 @@ TEXTS = {
         "link_candidate": "Привязать кандидата (фигурально)",
         "match": "Поехали! (запуск алгоритма сопоставления...)",
         "switch_mode": "Переключить режим",
-        "help_candidate": "Кандидат: /update — загрузить резюме (.txt), /hash — сгенерировать токен для связи с HR.",
+        "help_candidate": "Кандидат: /update — загрузить резюме (.txt), /hash — сгенерировать токен для связи с рекрутером.",
         "help_recruiter": "Рекрутер: /link [токен] — связаться с кандидатом, /match — сопоставить с вакансией (сначала /link).",
         "help_admin": "Админ: /switch — переключить режим (кандидат ↔ рекрутер). В candidate: /update, /hash. В hr: /link, /match.",
         "cmd_start": "Запуск",
@@ -105,6 +105,7 @@ TEXTS = {
         "no_results": "Совпадений не обнаружено.",
         "relevance": "Совпадение? Не думаю. Релевантность: {score:.2f}",
         "resume_accepted": "Резюме принято (job_id: {job_id}). Дождитесь завершения индексации.",
+        "no_documents_stub": "Утром деньги, вечером стулья... Сначала загрузите резюмe.",
     },
     "en": {
         "update_resume": "Update resume",
@@ -157,6 +158,7 @@ TEXTS = {
         "no_results": "No results (no candidate documents).",
         "relevance": "Relevance: {score:.2f}",
         "resume_accepted": "Resume accepted (job_id: {job_id}).",
+        "no_documents_stub": "Please upload your resume first (/update).",
     },
 }
 
