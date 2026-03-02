@@ -91,7 +91,7 @@ async def test_clarification_loop_basic_pass():
 
 @pytest.mark.asyncio
 async def test_score_just_below_answer_threshold_triggers_clarification():
-    """Score in [CLARIFY, ANSWER): one clarification, retry, then success."""
+    """Score in [CLARIFY, ANSWER): one clarification, retry, then success. Pin thresholds so .env (e.g. ANSWER_THRESHOLD=0.54) does not change behavior."""
     from generation_client import GenerateResult
     retrieve_calls = 0
 
@@ -102,15 +102,17 @@ async def test_score_just_below_answer_threshold_triggers_clarification():
             return _chunks(0.64)
         return _chunks(0.7)
 
-    with patch("subtask_retrieval.CLARIFY_THRESHOLD", 0.35), patch("subtask_retrieval.ANSWER_THRESHOLD", 0.65), patch("subtask_retrieval.MAX_CLARIFICATION_ATTEMPTS", 2):
-        with patch("subtask_retrieval.retrieval_search", new_callable=AsyncMock, side_effect=mock_retrieve):
-            with patch("subtask_retrieval.gen_clarification", new_callable=AsyncMock) as m_clarify:
-                m_clarify.return_value = GenerateResult(success=True, output="Which topic?", attempts=1)
-                with patch("subtask_retrieval.generation_generate", new_callable=AsyncMock, return_value=GenerateResult(success=True, output="Done.", attempts=1)):
-                    from subtask_retrieval import run_retrieval
-                    result = await run_retrieval(_subtask("original q"), trace_id="t1")
-                    assert result.kind == SUCCESS
-                    assert m_clarify.call_count >= 1
+    # Patch both config and subtask_retrieval so thresholds are fixed regardless of .env or import order
+    with patch("config.ANSWER_THRESHOLD", 0.65), patch("config.CLARIFY_THRESHOLD", 0.35), patch("config.MAX_CLARIFICATION_ATTEMPTS", 2):
+        with patch("subtask_retrieval.CLARIFY_THRESHOLD", 0.35), patch("subtask_retrieval.ANSWER_THRESHOLD", 0.65), patch("subtask_retrieval.MAX_CLARIFICATION_ATTEMPTS", 2):
+            with patch("subtask_retrieval.retrieval_search", new_callable=AsyncMock, side_effect=mock_retrieve):
+                with patch("subtask_retrieval.gen_clarification", new_callable=AsyncMock) as m_clarify:
+                    m_clarify.return_value = GenerateResult(success=True, output="Which topic?", attempts=1)
+                    with patch("subtask_retrieval.generation_generate", new_callable=AsyncMock, return_value=GenerateResult(success=True, output="Done.", attempts=1)):
+                        from subtask_retrieval import run_retrieval
+                        result = await run_retrieval(_subtask("original q"), trace_id="t1")
+                        assert result.kind == SUCCESS
+                        assert m_clarify.call_count >= 1
 
 
 @pytest.mark.asyncio
