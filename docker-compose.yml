@@ -876,6 +876,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       API_GATEWAY_URL: http://api-gateway:8000
       BASE_API_URL: http://api-gateway:8000
+      RETRIEVAL_SERVICE_URL: http://retrieval-service:8000
+      CONVERSATION_MANAGER_URL: http://conversation-manager:8000
       EMBEDDING_SERVICE_URL: http://embedding-service:8000
       TRANSLATION_SERVICE_URL: http://translation-service:8000
     depends_on:
@@ -883,6 +885,8 @@ services:
       - redis
       - qdrant
       - api-gateway
+      - conversation-manager
+      - retrieval-service
       - translation-service
 
 # ============================================
