@@ -97,7 +97,7 @@ TEXTS = {
         "upload_error": "Я не упал, шеф, — меня уронили... (upload_error)",
         "upload_failed": "Я не упал, шеф, — меня уронили... (upload_failed)",
         "indexing_failed": "Я не упал, шеф, — меня уронили... (indexing_failed)",
-        "resume_indexed": "Архив структурирован. Сегментов: {n}.",
+        "resume_indexed": "Документ переведен и структурирован. Сегментов: {n}.",
         "invalid_response": "Я не упал, шеф, — меня уронили... (invalid_response)",
         "no_response": "Я не упал, шеф, — меня уронили... (no_response)",
         "timeout": "Я не упал, шеф, — меня уронили... (timeout)",
@@ -170,6 +170,14 @@ for _lang, _d in TEXTS.items():
     BTN_TO_ACTION[_d["link_candidate"]] = "link"
     BTN_TO_ACTION[_d["match"]] = "match"
     BTN_TO_ACTION[_d["switch_mode"]] = "switch"
+
+# Варианты заглушки «нет документов», которые может вернуть CM; бот подменяет их на _t("no_documents_stub", lang)
+NO_DOCUMENTS_STUB_CM_VARIANTS = frozenset({
+    TEXTS["en"]["no_documents_stub"],
+    TEXTS["ru"]["no_documents_stub"],
+    "Сначала загрузите резюме (/update). / Please upload your resume first (/update).",
+    f"{TEXTS['ru']['no_documents_stub']} / {TEXTS['en']['no_documents_stub']}",
+})
 
 
 def _t(key: str, lang: str | None, **kwargs: str | int) -> str:
@@ -289,8 +297,11 @@ async def _poll_and_edit_chat_response(
     message_id: str,
     chat_id: int,
     msg_id: int,
+    lang: str,
 ) -> None:
     answer = await _poll_message_and_get_answer(base_url, message_id)
+    if answer.strip() in NO_DOCUMENTS_STUB_CM_VARIANTS:
+        answer = _t("no_documents_stub", lang)
     try:
         await bot.edit_message_text(
             chat_id=chat_id,
@@ -392,6 +403,7 @@ async def _process_chat_message(
             msg_id,
             sent.chat_id,
             sent.message_id,
+            lang,
         )
     )
 
@@ -403,6 +415,7 @@ async def _poll_job_and_edit_message(
     chat_id: int,
     message_id: int,
     pool: asyncpg.Pool,
+    lang: str,
 ) -> None:
     for _ in range(POLL_MAX_ATTEMPTS):
         await asyncio.sleep(POLL_INTERVAL_SEC)
@@ -425,10 +438,7 @@ async def _poll_job_and_edit_message(
                         n = await get_chunk_count_by_document_id(conn, doc_id)
                 except Exception as e:
                     logger.warning("get_chunk_count failed: %s", e)
-            text = (
-                f"Резюме проиндексировано и разбито на {n} чанков.\n"
-                f"Resume indexed and split into {n} chunks."
-            )
+            text = _t("resume_indexed", lang, n=n)
             try:
                 await bot.edit_message_text(
                     chat_id=chat_id,
@@ -966,6 +976,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     chat_id=sent.chat_id,
                     message_id=sent.message_id,
                     pool=pool,
+                    lang=lang,
                 )
             )
     else:
