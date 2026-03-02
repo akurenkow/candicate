@@ -18,13 +18,4 @@ COPY pytest.ini /workspace/pytest.ini
 
 # Запуск: unit-тесты по services/ + e2e, с покрытием. Игнорируем telegram-bot/tests в первом проходе.
 # Выход с кодом pytest (0 = успех).
-CMD [
-  "python", "-m", "pytest", "-q",
-  "services",
-  "tests/test_e2e_ingestion_flow.py",
-  "tests/test_e2e_rag_pipeline.py",
-  "tests/test_e2e_match_vacancy.py",
-  "-v", "--tb=short",
-  "--cov=services", "--cov-report=term-missing",
-  "--ignore=services/telegram-bot/tests"
-]
+CMD ["python", "-m", "pytest", "-q", "services", "tests/test_e2e_ingestion_flow.py", "tests/test_e2e_rag_pipeline.py", "tests/test_e2e_match_vacancy.py", "-v", "--tb=short", "--cov=services", "--cov-report=term-missing", "--ignore=services/telegram-bot/tests"]
