@@ -86,8 +86,11 @@ def build_service(service_name: str, no_cache: bool = False, pull: bool = False)
     if pull:
         cmd.append("--pull")
     service_dockerfile = service_path / "Dockerfile"
-    if service_dockerfile.exists() and service_name in ("telegram-bot", "lightweight-embeddings"):
-        cmd.extend(["-f", str(service_dockerfile), str(service_path)])
+    if service_dockerfile.exists() and service_name in ("telegram-bot", "lightweight-embeddings", "test-runner"):
+        if service_name == "test-runner":
+            cmd.extend(["-f", str(service_path / "Dockerfile"), "."])
+        else:
+            cmd.extend(["-f", str(service_dockerfile), str(service_path)])
         if service_name == "lightweight-embeddings" and os.environ.get("USE_OFFLINE_TORCH"):
             cmd.extend(["--build-arg", f"USE_OFFLINE_TORCH={os.environ.get('USE_OFFLINE_TORCH', '0')}"])
     else:

@@ -819,8 +819,8 @@ services:
         max-file: "3"
         tag: "{{.Name}}"
 
-  # ----- Clearing Service -----
-  clearing-service:
+  # ----- Telegram Bot -----
+  telegram-bot:
     build: ./services/clearing-service
     image: rag-clearing-service:latest
     container_name: rag-clearing-service
@@ -849,6 +849,34 @@ services:
         max-size: "10m"
         max-file: "3"
         tag: "{{.Name}}"
+
+  # ----- Test Runner (запуск тестов, один прогон, выход с кодом pytest) -----
+  test-runner:
+    build:
+      context: .
+      dockerfile: services/test-runner/Dockerfile
+    image: rag-test-runner:latest
+    container_name: rag-test-runner
+    restart: "no"
+    profiles:
+      - test
+    networks:
+      - backend
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    # Опционально: переменные для e2e (если тесты подключаются к сервисам)
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      QDRANT_URL: http://qdrant:6333
+      REDIS_URL: redis://redis:6379/0
+      BASE_API_URL: http://api-gateway:8000
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+      - api-gateway
 
 # ============================================
 # VOLUMES (объявлены в части 1)
