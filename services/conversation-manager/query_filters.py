@@ -27,6 +27,11 @@ _COMPANY_RU_PATTERN = re.compile(
     r"\b(?:опыт|опыте|работа|работе)\s+в\s+([^.?!]+)",
     re.IGNORECASE,
 )
+# Russian: "опыт работы в X", "опыте работы в X"
+_COMPANY_RU_WORK_PATTERN = re.compile(
+    r"\b(?:опыт|опыте)\s+работы?\s+в\s+([^.?!]+)",
+    re.IGNORECASE,
+)
 # Russian: "в X" at end (e.g. "Расскажи об опыте в Ланит-Терком")
 _RU_IN_TRAILING_PATTERN = re.compile(
     r"\bв\s+([^.?!]+?)\s*[.?!]?\s*$",
@@ -53,6 +58,9 @@ def extract_company_from_query(query: str) -> str | None:
     if m:
         return m.group(1).strip() or None
     m = _IN_TRAILING_PATTERN.search(q)
+    if m:
+        return m.group(1).strip() or None
+    m = _COMPANY_RU_WORK_PATTERN.search(q)
     if m:
         return m.group(1).strip() or None
     m = _COMPANY_RU_PATTERN.search(q)
