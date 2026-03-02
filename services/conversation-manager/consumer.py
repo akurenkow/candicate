@@ -146,6 +146,7 @@ async def process_one(
         assistant_text_raw = cached_raw
         from_cache = True
         should_escalate = False
+        results = []
     else:
         subtasks = decompose(working_query, message_id)
         if not subtasks:
