@@ -865,18 +865,25 @@ services:
     working_dir: /workspace
     volumes:
       - .:/workspace
-    # Опционально: переменные для e2e (если тесты подключаются к сервисам)
+    # Переменные для e2e: тесты читают API_GATEWAY_URL; пайплайн ingestion — EMBEDDING_SERVICE_URL, TRANSLATION_SERVICE_URL
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-assistant_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-assistant}
       QDRANT_URL: http://qdrant:6333
       REDIS_URL: redis://redis:6379/0
+      API_GATEWAY_URL: http://api-gateway:8000
       BASE_API_URL: http://api-gateway:8000
+      EMBEDDING_SERVICE_URL: http://embedding-service:8000
+      TRANSLATION_SERVICE_URL: http://translation-service:8000
     depends_on:
       - postgres
       - redis
       - qdrant
       - api-gateway
+      - translation-service
 
 # ============================================
 # VOLUMES (объявлены в части 1)

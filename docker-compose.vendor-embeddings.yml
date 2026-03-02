@@ -101,3 +101,9 @@ services:
         condition: service_healthy
       translation-service:
         condition: service_healthy
+
+  test-runner:
+    environment:
+      EMBEDDING_SERVICE_URL: http://lightweight-embeddings:8000
+    depends_on:
+      - lightweight-embeddings
