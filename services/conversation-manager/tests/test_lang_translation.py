@@ -139,3 +139,30 @@ async def test_translation_failure_fallback_working_query_unchanged(pool):
     assert row["working_query"] == "Что такое Python?"
     assert row["detected_lang"] == "ru"
     assert row["status"] == "completed"
+
+
+# --- Unit tests for lang_detect (Cyrillic -> ru, else en) ---
+
+def test_lang_detect_cyrillic_is_russian():
+    from lang_detect import detect
+    assert detect("привет") == "ru"
+    assert detect("здравствуйте") == "ru"
+    assert detect("Расскажите о вашем опыте в ML") == "ru"
+    assert detect("Завтрак") == "ru"
+    assert detect("Hi привет") == "ru"
+
+
+def test_lang_detect_no_cyrillic_is_english():
+    from lang_detect import detect
+    assert detect("Hello") == "en"
+    assert detect("Tell me about yourself") == "en"
+    assert detect("What is Python?") == "en"
+
+
+def test_lang_detect_short_or_empty_returns_model_language():
+    from lang_detect import detect
+    from config import MODEL_WORKING_LANGUAGE
+    assert detect("") == MODEL_WORKING_LANGUAGE
+    assert detect("  ") == MODEL_WORKING_LANGUAGE
+    assert detect("ab") == MODEL_WORKING_LANGUAGE
+    assert detect("х") == MODEL_WORKING_LANGUAGE  # single Cyrillic still short
