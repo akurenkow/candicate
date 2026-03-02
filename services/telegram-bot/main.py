@@ -5,6 +5,7 @@ import asyncio
 import io
 import logging
 import os
+import uuid
 from enum import Enum
 
 import asyncpg
@@ -70,40 +71,39 @@ TEXTS = {
         "menu_ready": "Готово. /lang — язык.",
         "menu_mode_admin": "Режим: {mode}. /switch — переключить.",
         "access_denied": "Доступ запрещён. / Access denied.",
-        "enter_candidate_token": "Введите токен кандидата. / Enter candidate token.",
-        "lang_usage": "Использование: /lang ru или /lang en\nUsage: /lang ru or /lang en",
+        "enter_candidate_token": "Введите токен кандидата.",
+        "lang_usage": "Использование: /lang ru или /lang en",
         "language_updated": "Язык обновлён.",
-        "error_generic": "Ошибка. / Error.",
-        "user_not_found": "Пользователь не найден. / User not found.",
-        "recruiters_only": "Только для рекрутеров. / Recruiters only.",
-        "use_link_first": "Свяжитесь с кандидатом через /link.\nUse /link to link to a candidate.",
-        "send_vacancy_file": "Отправьте файл в формате doc(x)/pdf/txt или краткое описание (не больше 1 сообщения телеграм).\nSend a file (doc/docx/pdf/txt) or brief description (max 1 Telegram message).",
-        "upload_resume_txt": "Загрузите резюме в формате .txt (макс. 1 МБ).\nUpload your resume as .txt file (max 1 MB).",
-        "vacancy_format": "Формат не поддерживается. Используйте doc(x)/pdf/txt.\nFormat not supported. Use doc/docx/pdf/txt.",
-        "file_too_large_5mb": "Файл слишком большой (макс. 5 МБ).\nFile too large (max 5 MB).",
-        "download_failed": "Не удалось загрузить файл. / Failed to download file.",
-        "only_txt": "Только .txt. / Only .txt files allowed.",
-        "file_too_large_1mb": "Файл слишком большой (макс. 1 МБ). / File too large (max 1 MB).",
-        "service_error": "Ошибка сервиса. / Service error.",
-        "request_error": "Ошибка запроса. / Request error.",
-        "response_error": "Ошибка ответа. / Response error.",
+        "error_generic": "Я не упал, шеф, — меня уронили... (error_generic)",
+        "user_not_found": "Пользователь не найден.",
+        "recruiters_only": "Только для рекрутеров.",
+        "use_link_first": "Свяжитесь с кандидатом через /link.",
+        "send_vacancy_file": "Отправьте файл в формате doc(x)/pdf/txt или краткое описание (не больше 1 сообщения телеграм).",
+        "upload_resume_txt": "Загрузите резюме в формате .txt (макс. 1 МБ).",
+        "vacancy_format": "Формат не поддерживается. Используйте doc(x)/pdf/txt.",
+        "file_too_large_1mb": "Файл слишком большой (макс. 1 МБ).",
+        "download_failed": "Не удалось загрузить файл.",
+        "only_txt": "Только .txt.",
+        "service_error": "Я не упал, шеф, — меня уронили... (service_error)",
+        "request_error": "Я не упал, шеф, — меня уронили... (request_error)",
+        "response_error": "Я не упал, шеф, — меня уронили... (response_error)",
         "processing": "Обработка...",
         "language_chosen_waiting_hash": "Язык выбран. Ожидание хэша.",
-        "choose_lang_ru_en": "Выберите язык: ru или en\nChoose language: ru or en",
+        "choose_lang_ru_en": "Выберите язык: ru или en",
         "mode_switched": "Режим: {mode}.",
-        "description_too_long": "Описание слишком большое, отправьте файл в формате doc(x)/pdf/txt.\nDescription too long. Send a file in doc/docx/pdf/txt format.",
-        "link_lost": "Связь с кандидатом потеряна. Используйте /link.\nLink lost. Use /link.",
-        "upload_error": "Ошибка при загрузке. / Upload error.",
-        "upload_failed": "Ошибка загрузки: {detail}.\nUpload failed.",
-        "indexing_failed": "Ошибка индексации: {detail}.\nIndexing failed.",
-        "resume_indexed": "Резюме проиндексировано и разбито на {n} чанков.\nResume indexed and split into {n} chunks.",
-        "invalid_response": "Ошибка формата. / Invalid response.",
-        "no_response": "Нет ответа. / No response.",
-        "timeout": "Таймаут. / Timeout.",
-        "translation_failed": "Ошибка перевода ответа. Попробуйте позже или обратитесь к администратору. / Response translation failed. Try again later or contact support.",
-        "no_results": "Нет результатов (нет документов кандидата).\nNo results (no candidate documents).",
+        "description_too_long": "Описание слишком большое, отправьте файл в формате doc(x)/pdf/txt.",
+        "link_lost": "Связь с кандидатом потеряна. Используйте /link.",
+        "upload_error": "Я не упал, шеф, — меня уронили... (upload_error)",
+        "upload_failed": "Я не упал, шеф, — меня уронили... (upload_failed)",
+        "indexing_failed": "Я не упал, шеф, — меня уронили... (indexing_failed)",
+        "resume_indexed": "Резюме проиндексировано и разбито на {n} чанков.",
+        "invalid_response": "Я не упал, шеф, — меня уронили... (invalid_response)",
+        "no_response": "Я не упал, шеф, — меня уронили... (no_response)",
+        "timeout": "Я не упал, шеф, — меня уронили... (timeout)",
+        "translation_failed": "Я не упал, шеф, — меня уронили... (translation_failed)",
+        "no_results": "Нет результатов (нет документов кандидата).",
         "relevance": "Релевантность: {score:.2f}",
-        "resume_accepted": "Резюме принято (job_id: {job_id}).\nResume accepted.",
+        "resume_accepted": "Резюме принято (job_id: {job_id}). Дождитесь завершения индексации.",
     },
     "en": {
         "update_resume": "Update resume",
@@ -118,44 +118,43 @@ TEXTS = {
         "cmd_start": "Start",
         "cmd_help": "Help",
         "cmd_lang": "Language",
-        "choose_language": "Choose language / Выберите язык:",
+        "choose_language": "Choose language:",
         "menu_ready": "Ready. /lang for language.",
         "menu_mode_admin": "Mode: {mode}. /switch to toggle.",
-        "access_denied": "Access denied. / Доступ запрещён.",
-        "enter_candidate_token": "Enter candidate token. / Введите токен кандидата.",
-        "lang_usage": "Usage: /lang ru or /lang en\nИспользование: /lang ru или /lang en",
+        "access_denied": "Access denied.",
+        "enter_candidate_token": "Enter candidate token.",
+        "lang_usage": "Usage: /lang ru or /lang en",
         "language_updated": "Language updated.",
-        "error_generic": "Error. / Ошибка.",
-        "user_not_found": "User not found. / Пользователь не найден.",
-        "recruiters_only": "Recruiters only. / Только для рекрутеров.",
-        "use_link_first": "Use /link to link to a candidate.\nСвяжитесь с кандидатом через /link.",
-        "send_vacancy_file": "Send a file (doc/docx/pdf/txt) or brief description (max 1 Telegram message).\nОтправьте файл в формате doc(x)/pdf/txt или краткое описание.",
-        "upload_resume_txt": "Upload your resume as .txt file (max 1 MB).\nЗагрузите резюме в формате .txt (макс. 1 МБ).",
-        "vacancy_format": "Format not supported. Use doc/docx/pdf/txt.\nФормат не поддерживается. Используйте doc(x)/pdf/txt.",
-        "file_too_large_5mb": "File too large (max 5 MB).\nФайл слишком большой (макс. 5 МБ).",
-        "download_failed": "Failed to download file. / Не удалось загрузить файл.",
-        "only_txt": "Only .txt files allowed. / Только .txt.",
-        "file_too_large_1mb": "File too large (max 1 MB). / Файл слишком большой (макс. 1 МБ).",
-        "service_error": "Service error. / Ошибка сервиса.",
-        "request_error": "Request error. / Ошибка запроса.",
-        "response_error": "Response error. / Ошибка ответа.",
+        "error_generic": "Error.",
+        "user_not_found": "User not found.",
+        "recruiters_only": "Recruiters only.",
+        "use_link_first": "Use /link to link to a candidate.",
+        "send_vacancy_file": "Send a file (doc/docx/pdf/txt) or brief description (max 1 Telegram message).",
+        "upload_resume_txt": "Upload your resume as .txt file (max 1 MB).",
+        "vacancy_format": "Format not supported. Use doc/docx/pdf/txt.",
+        "file_too_large_1mb": "File too large (max 1 MB).",
+        "download_failed": "Failed to download file.",
+        "only_txt": "Only .txt files allowed.",
+        "service_error": "Service error.",
+        "request_error": "Request error.",
+        "response_error": "Response error.",
         "processing": "Processing...",
         "language_chosen_waiting_hash": "Language chosen. Waiting for hash.",
-        "choose_lang_ru_en": "Choose language: ru or en\nВыберите язык: ru или en",
+        "choose_lang_ru_en": "Choose language: ru or en",
         "mode_switched": "Mode: {mode}.",
-        "description_too_long": "Description too long. Send a file in doc/docx/pdf/txt format.\nОписание слишком большое. Отправьте файл в формате doc(x)/pdf/txt.",
-        "link_lost": "Link lost. Use /link.\nСвязь с кандидатом потеряна. Используйте /link.",
-        "upload_error": "Upload error. / Ошибка при загрузке.",
-        "upload_failed": "Upload failed: {detail}.\nОшибка загрузки: {detail}.",
-        "indexing_failed": "Indexing failed: {detail}.\nОшибка индексации: {detail}.",
-        "resume_indexed": "Resume indexed and split into {n} chunks.\nРезюме проиндексировано и разбито на {n} чанков.",
-        "invalid_response": "Invalid response. / Ошибка формата.",
-        "no_response": "No response. / Нет ответа.",
-        "timeout": "Timeout. / Таймаут.",
-        "translation_failed": "Response translation failed. Try again later or contact support. / Ошибка перевода ответа.",
-        "no_results": "No results (no candidate documents).\nНет результатов (нет документов кандидата).",
+        "description_too_long": "Description too long. Send a file in doc/docx/pdf/txt format.",
+        "link_lost": "Link lost. Use /link.",
+        "upload_error": "Upload error.",
+        "upload_failed": "Upload failed: {detail}.",
+        "indexing_failed": "Indexing failed: {detail}.",
+        "resume_indexed": "Resume indexed and split into {n} chunks.",
+        "invalid_response": "Invalid response.",
+        "no_response": "No response.",
+        "timeout": "Timeout.",
+        "translation_failed": "Response translation failed. Try again later or contact support.",
+        "no_results": "No results (no candidate documents).",
         "relevance": "Relevance: {score:.2f}",
-        "resume_accepted": "Resume accepted (job_id: {job_id}).\nРезюме принято.",
+        "resume_accepted": "Resume accepted (job_id: {job_id}).",
     },
 }
 
@@ -180,6 +179,25 @@ def _t(key: str, lang: str | None, **kwargs: str | int) -> str:
         except KeyError:
             return s
     return s
+
+
+# Ключи сообщений об ошибках бота: в ответ пользователю добавляется trace_id для поиска в логах
+BOT_ERROR_KEYS = frozenset({
+    "error_generic", "service_error", "request_error", "response_error",
+    "upload_error", "upload_failed", "indexing_failed", "invalid_response",
+    "no_response", "timeout", "translation_failed",
+})
+
+
+def _new_trace_id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def _bot_error_message(key: str, lang: str, **kwargs: str | int) -> str:
+    """Возвращает текст ошибки из TEXTS с добавлением trace_id; пишет trace_id в лог для администратора."""
+    trace_id = _new_trace_id()
+    logger.warning("bot_error key=%s trace_id=%s", key, trace_id)
+    return _t(key, lang, **kwargs) + f" trace_id={trace_id}"
 
 
 def _menu_keyboard(role: str | None, mode: str | None, lang: str | None) -> ReplyKeyboardMarkup:
@@ -250,12 +268,15 @@ async def _poll_message_and_get_answer(
         status = data.get("status", "")
         if status == "completed":
             t = (data.get("assistant_text_translated") or data.get("assistant_text") or "").strip()
-            return t or "Нет ответа. / No response."
+            return t or _bot_error_message("no_response", "en")
         if status == "escalated":
-            return "Ошибка перевода ответа. Попробуйте позже или обратитесь к администратору. / Response translation failed. Try again later or contact support."
+            return _bot_error_message("translation_failed", "en")
         if status == "failed":
-            return data.get("assistant_text") or "Ошибка. / Error."
-    return "Таймаут. / Timeout."
+            fallback = data.get("assistant_text") or _t("error_generic", "en")
+            trace_id = _new_trace_id()
+            logger.warning("bot_error poll status=failed trace_id=%s", trace_id)
+            return fallback + f" trace_id={trace_id}"
+    return _bot_error_message("timeout", "en")
 
 
 async def _poll_and_edit_chat_response(
@@ -315,7 +336,7 @@ async def _process_chat_message(
         return
     base_url = os.getenv("BASE_API_URL", "").rstrip("/")
     if not base_url:
-        await context.bot.send_message(chat_id=chat_id, text=_t("service_error", lang))
+        await context.bot.send_message(chat_id=chat_id, text=_bot_error_message("service_error", lang))
         return
     sent = await context.bot.send_message(chat_id=chat_id, text=_t("processing", lang))
     try:
@@ -330,7 +351,7 @@ async def _process_chat_message(
         await context.bot.edit_message_text(
             chat_id=chat_id,
             message_id=sent.message_id,
-            text=_t("request_error", lang),
+            text=_bot_error_message("request_error", lang),
         )
         return
     if r.status_code != 202:
@@ -343,10 +364,12 @@ async def _process_chat_message(
                 err = str(d)[:500]
         except Exception:
             pass
+        trace_id = _new_trace_id()
+        logger.warning("bot_error chat non-202 trace_id=%s detail=%.200s", trace_id, err)
         await context.bot.edit_message_text(
             chat_id=chat_id,
             message_id=sent.message_id,
-            text=err,
+            text=err + f" trace_id={trace_id}",
         )
         return
     body = r.json()
@@ -355,7 +378,7 @@ async def _process_chat_message(
         await context.bot.edit_message_text(
             chat_id=chat_id,
             message_id=sent.message_id,
-            text=_t("response_error", lang),
+            text=_bot_error_message("response_error", lang),
         )
         return
     asyncio.create_task(
@@ -413,11 +436,13 @@ async def _poll_job_and_edit_message(
             return
         if status == "failed":
             err = data.get("error_message", "Error")
+            trace_id = _new_trace_id()
+            logger.warning("bot_error indexing_failed trace_id=%s err=%s", trace_id, err)
             try:
                 await bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=message_id,
-                    text=f"Ошибка индексации: {err}.\nIndexing failed.",
+                    text=_t("indexing_failed", "en", detail=err) + f" trace_id={trace_id}",
                 )
             except Exception:
                 pass
@@ -564,7 +589,7 @@ async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 lang,
             )
     else:
-        await query.edit_message_text(_t("error_generic", "en"))
+        await query.edit_message_text(_bot_error_message("error_generic", "en"))
 
 
 async def _do_link(
@@ -644,6 +669,7 @@ async def link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not args:
         _set_state(tid, BotState.WAITING_LINK_TOKEN)
         lang = "en"
+        pool = context.bot_data["pool"]
         async with pool.acquire() as conn:
             u = await get_user_by_telegram_id(conn, str(tid))
             if u:
@@ -780,7 +806,7 @@ async def _do_match_vacancy(
         return
     base_url = os.getenv("BASE_API_URL", "").rstrip("/")
     if not base_url:
-        await update.message.reply_text(_t("service_error", lang))
+        await update.message.reply_text(_bot_error_message("service_error", lang))
         return
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -790,7 +816,7 @@ async def _do_match_vacancy(
             )
     except Exception as e:
         logger.exception("Match API error: %s", e)
-        await update.message.reply_text(_t("request_error", lang))
+        await update.message.reply_text(_bot_error_message("request_error", lang))
         return
     if r.status_code != 200:
         try:
@@ -799,11 +825,13 @@ async def _do_match_vacancy(
             err = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
         except Exception:
             err = _t("error_generic", lang)
-        await update.message.reply_text(str(err)[:500])
+        trace_id = _new_trace_id()
+        logger.warning("bot_error match_vacancy non-200 trace_id=%s detail=%.200s", trace_id, err)
+        await update.message.reply_text(str(err)[:500] + f" trace_id={trace_id}")
         return
     data = r.json()
     if not isinstance(data, list):
-        await update.message.reply_text(_t("invalid_response", lang))
+        await update.message.reply_text(_bot_error_message("invalid_response", lang))
         return
     if not data:
         await update.message.reply_text(_t("no_results", lang))
@@ -845,7 +873,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await update.message.reply_text(_t("vacancy_format", lang))
             return
         if doc.file_size and doc.file_size > MAX_VACANCY_FILE_BYTES:
-            await update.message.reply_text(_t("file_too_large_5mb", lang))
+            await update.message.reply_text(_t("file_too_large_1mb", lang))
             return
         try:
             tg_file = await context.bot.get_file(doc.file_id)
@@ -881,7 +909,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     base_url = os.getenv("BASE_API_URL", "").rstrip("/")
     if not base_url:
         _set_state(tid, BotState.ACTIVE)
-        await update.message.reply_text(_t("service_error", lang))
+        await update.message.reply_text(_bot_error_message("service_error", lang))
         logger.error("BASE_API_URL not set")
         return
 
@@ -913,7 +941,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     except Exception as e:
         logger.exception("Resume upload API error: %s", e)
         _set_state(tid, BotState.ACTIVE)
-        await update.message.reply_text(_t("upload_error", lang))
+        await update.message.reply_text(_bot_error_message("upload_error", lang))
         return
 
     _set_state(tid, BotState.ACTIVE)
@@ -942,7 +970,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             d = r.text or "Unknown error"
         d = d[0] if isinstance(d, list) and d else d
         d = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
-        await update.message.reply_text(_t("upload_failed", lang, detail=d))
+        await update.message.reply_text(_bot_error_message("upload_failed", lang, detail=d))
 
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -964,7 +992,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             user = await get_user_by_telegram_id(conn, str(tid))
         if user is None or not _is_hr_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
             _set_state(tid, BotState.ACTIVE)
-            await update.message.reply_text(_t("error_generic", str(user.get("language") or "en") if user else "en"))
+            await update.message.reply_text(_bot_error_message("error_generic", str(user.get("language") or "en") if user else "en"))
             return
         lang = str(user.get("language") or "en")
         dialog_owner_id = user.get("dialog_owner_id")

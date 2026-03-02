@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 VACANCY_ALLOWED_EXT = frozenset({".doc", ".docx", ".pdf", ".txt"})
-MAX_VACANCY_FILE_BYTES = 5 * 1024 * 1024  # 5MB
+MAX_VACANCY_FILE_BYTES = 1 * 1024 * 1024  # 1MB
 
 
 def _extract_txt(raw: bytes) -> str:

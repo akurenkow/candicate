@@ -44,6 +44,13 @@ from main import (
 import main as main_mod
 
 
+def _text_matches_key(reply_text: str, key: str, lang: str | None = None) -> bool:
+    """True if reply_text equals TEXTS value for key (single lang or any lang)."""
+    if lang:
+        return reply_text == TEXTS.get(lang, {}).get(key)
+    return any(reply_text == TEXTS.get(l, {}).get(key) for l in TEXTS if key in TEXTS.get(l, {}))
+
+
 def _make_update_message(tid: int = 12345, text: str = "", chat_id: int = 1):
     u = MagicMock()
     u.message = MagicMock()
@@ -276,7 +283,7 @@ async def test_start_handler_new_user_shows_lang(pool_mock):
                     await start_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     call_args = u.message.reply_text.call_args
-    assert "language" in call_args[0][0].lower() or "язык" in call_args[0][0].lower()
+    assert _text_matches_key(call_args[0][0], "choose_language")
     main_mod._user_states.pop(77771, None)
 
 
@@ -294,7 +301,7 @@ async def test_start_handler_existing_user_shows_menu(pool_mock):
         with patch.dict(os.environ, {"ALLOWED_UPLOAD_USER_IDS": ""}, clear=False):
             await start_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert "Ready" in u.message.reply_text.call_args[0][0] or "Готово" in u.message.reply_text.call_args[0][0]
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "menu_ready", "en")
     main_mod._user_states.pop(77772, None)
 
 
@@ -306,7 +313,7 @@ async def test_lang_handler_invalid_args(pool_mock):
     ctx.args = ["fr"]
     await lang_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert "lang" in u.message.reply_text.call_args[0][0].lower()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "lang_usage", "en")
 
 
 @pytest.mark.asyncio
@@ -342,6 +349,7 @@ async def test_lang_callback_valid(pool_mock):
     u.callback_query.answer.assert_called_once()
     u.callback_query.edit_message_text.assert_called_once()
     ctx.bot.send_message.assert_called_once()
+    assert _text_matches_key(ctx.bot.send_message.call_args[0][1], "menu_ready", "en")
     main_mod._user_states.pop(77775, None)
 
 
@@ -353,7 +361,7 @@ async def test_help_handler_no_user(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value=None)):
         await help_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert "candidate" in u.message.reply_text.call_args[0][0].lower() or "кандидат" in u.message.reply_text.call_args[0][0].lower()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "help_candidate", "en")
 
 
 @pytest.mark.asyncio
@@ -375,7 +383,7 @@ async def test_hash_handler_recruiter_denied(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None})):
         await hash_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert "denied" in u.message.reply_text.call_args[0][0].lower() or "запрещён" in u.message.reply_text.call_args[0][0].lower()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "access_denied", "en")
 
 
 @pytest.mark.asyncio
@@ -400,6 +408,7 @@ async def test_link_handler_no_args_enters_waiting(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None})):
         await link_handler(u, ctx)
     u.message.reply_text.assert_called_once()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "enter_candidate_token", "en")
     assert _get_state(77780) == BotState.WAITING_LINK_TOKEN
     main_mod._user_states.pop(77780, None)
 
@@ -413,7 +422,7 @@ async def test_link_handler_unregistered(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value=None)):
         await _do_link(u, ctx, "token12345678901234567890")
     u.message.reply_text.assert_called_once()
-    assert "start" in u.message.reply_text.call_args[0][0].lower()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "choose_language", "en")
 
 
 @pytest.mark.asyncio
@@ -424,7 +433,7 @@ async def test_switch_handler_non_admin(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
         await switch_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert "denied" in u.message.reply_text.call_args[0][0].lower() or "запрещён" in u.message.reply_text.call_args[0][0].lower()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "access_denied", "en")
 
 
 @pytest.mark.asyncio
@@ -436,7 +445,7 @@ async def test_switch_handler_admin_toggles(pool_mock):
         with patch.object(main_mod, "update_mode", AsyncMock(return_value=1)):
             await switch_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert "hr" in u.message.reply_text.call_args[0][0].lower()
+    assert u.message.reply_text.call_args[0][0] == _t("mode_switched", "en", mode="hr")
 
 
 @pytest.mark.asyncio
@@ -447,7 +456,7 @@ async def test_update_handler_recruiter_denied(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None})):
         await update_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert "denied" in u.message.reply_text.call_args[0][0].lower() or "запрещён" in u.message.reply_text.call_args[0][0].lower()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "access_denied", "en")
 
 
 @pytest.mark.asyncio
@@ -458,7 +467,7 @@ async def test_update_handler_candidate_asks_upload(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
         await update_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert ".txt" in u.message.reply_text.call_args[0][0]
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "upload_resume_txt", "en")
     assert _get_state(77785) == BotState.RESUME_PENDING
     main_mod._user_states.pop(77785, None)
 
@@ -471,7 +480,7 @@ async def test_match_handler_recruiter_no_link(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": None})):
         await match_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert "link" in u.message.reply_text.call_args[0][0].lower() or "свяжитесь" in u.message.reply_text.call_args[0][0].lower()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "use_link_first", "en")
 
 
 @pytest.mark.asyncio
@@ -482,7 +491,7 @@ async def test_match_handler_candidate_denied(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
         await match_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert "recruiter" in u.message.reply_text.call_args[0][0].lower() or "рекрутер" in u.message.reply_text.call_args[0][0].lower()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "recruiters_only", "en")
 
 
 @pytest.mark.asyncio
@@ -523,7 +532,7 @@ async def test_document_handler_candidate_wrong_ext(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
         await document_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert ".txt" in u.message.reply_text.call_args[0][0] or "txt" in u.message.reply_text.call_args[0][0].lower()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "only_txt", "en")
     main_mod._user_states.pop(77790, None)
 
 
@@ -540,7 +549,7 @@ async def test_document_handler_candidate_file_too_large(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
         await document_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert "1 MB" in u.message.reply_text.call_args[0][0] or "large" in u.message.reply_text.call_args[0][0].lower()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "file_too_large_1mb", "en")
     main_mod._user_states.pop(77791, None)
 
 
@@ -553,7 +562,7 @@ async def test_message_handler_waiting_vacancy_too_long(pool_mock):
     with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "o1"})):
         await message_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert "long" in u.message.reply_text.call_args[0][0].lower() or "больш" in u.message.reply_text.call_args[0][0].lower()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "description_too_long", "en")
     main_mod._user_states.pop(77792, None)
 
 
@@ -565,7 +574,7 @@ async def test_message_handler_waiting_hash_invalid_lang(pool_mock):
     _set_state(77793, BotState.WAITING_HASH)
     await message_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert "ru" in u.message.reply_text.call_args[0][0].lower() or "en" in u.message.reply_text.call_args[0][0].lower()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "choose_lang_ru_en", "en")
     main_mod._user_states.pop(77793, None)
 
 
