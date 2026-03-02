@@ -29,3 +29,8 @@ def detect(normalized_text: str) -> str:
     if len(text) < MIN_TEXT_LEN:
         return MODEL_WORKING_LANGUAGE
     return "ru" if _has_cyrillic(text) else "en"
+
+
+def get_fallback_language() -> str:
+    """Return language used for short/empty text (for tests)."""
+    return MODEL_WORKING_LANGUAGE

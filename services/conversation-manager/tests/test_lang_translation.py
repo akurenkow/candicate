@@ -160,9 +160,9 @@ def test_lang_detect_no_cyrillic_is_english():
 
 
 def test_lang_detect_short_or_empty_returns_model_language():
-    from lang_detect import detect
-    from config import MODEL_WORKING_LANGUAGE
-    assert detect("") == MODEL_WORKING_LANGUAGE
-    assert detect("  ") == MODEL_WORKING_LANGUAGE
-    assert detect("ab") == MODEL_WORKING_LANGUAGE
-    assert detect("х") == MODEL_WORKING_LANGUAGE  # single Cyrillic still short
+    from lang_detect import detect, get_fallback_language
+    fallback = get_fallback_language()
+    assert detect("") == fallback
+    assert detect("  ") == fallback
+    assert detect("ab") == fallback
+    assert detect("х") == fallback  # single Cyrillic still short
