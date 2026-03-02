@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from shared.company_normalize import normalize_company_name
 from .dto import Resume
 
 
@@ -55,7 +56,7 @@ def chunks_from_semantic_resume(
             is_fallback = company.metadata.get("fallback") == "true"
             base_meta = {
                 "section_kind": "experience" if is_fallback else "company",
-                "company_name": company.metadata.get("company_name", ""),
+                "company_name": normalize_company_name(company.metadata.get("company_name", "")),
                 "date_range": company.metadata.get("date_range", ""),
             }
 

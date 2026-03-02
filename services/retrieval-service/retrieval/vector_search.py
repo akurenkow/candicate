@@ -32,6 +32,9 @@ class StubVectorSearch:
     ) -> list[DocChunk]:
         return []
 
+    async def get_distinct_company_names(self, owner_id: str) -> list[str]:
+        return []
+
 
 class MockVectorSearch:
     """Returns fixed chunks for testing. Same embedding always gets same top_k chunks."""
@@ -46,6 +49,9 @@ class MockVectorSearch:
         filter_metadata: dict | None = None,
     ) -> list[DocChunk]:
         return self._chunks[:top_k]
+
+    async def get_distinct_company_names(self, owner_id: str) -> list[str]:
+        return sorted({c.metadata.get("company_name", "") for c in self._chunks if (c.metadata or {}).get("company_name")})
 
 
 def _payload_to_doc_chunk(r, score: float = 0.0) -> DocChunk:
@@ -68,11 +74,48 @@ class QdrantVectorSearch:
     """Vector search against Qdrant. Uses filter_metadata (e.g. owner_id) for scoping. Merges in section_kind=general chunks so salary/expectations are retrievable."""
 
     GENERAL_SCROLL_LIMIT = 15
+    OWNER_COMPANIES_SCROLL_LIMIT = 5000
 
     def __init__(self, url: str, collection_name: str) -> None:
         from qdrant_client import QdrantClient
         self._client = QdrantClient(url=url)
         self._collection = collection_name
+
+    async def get_distinct_company_names(self, owner_id: str) -> list[str]:
+        """Return distinct company_name values for the given owner_id (for fuzzy filter resolution)."""
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        if not (owner_id or "").strip():
+            return []
+        loop = asyncio.get_event_loop()
+        try:
+            owner_filter = Filter(must=[FieldCondition(key="owner_id", match=MatchValue(value=owner_id.strip()))])
+            companies: set[str] = set()
+            offset = None
+            while True:
+                scroll_result = await loop.run_in_executor(
+                    None,
+                    lambda of=owner_filter, off=offset: self._client.scroll(
+                        collection_name=self._collection,
+                        scroll_filter=of,
+                        limit=500,
+                        offset=off,
+                        with_payload=["company_name"],
+                        with_vectors=False,
+                    ),
+                )
+                records, next_offset = scroll_result[0], scroll_result[1] if len(scroll_result) > 1 else None
+                for rec in records or []:
+                    payload = getattr(rec, "payload", None) or {}
+                    cn = (payload.get("company_name") or "").strip()
+                    if cn:
+                        companies.add(cn)
+                if not next_offset or len(companies) >= self.OWNER_COMPANIES_SCROLL_LIMIT:
+                    break
+                offset = next_offset
+            return sorted(companies)
+        except Exception as e:
+            logger.warning("QdrantVectorSearch get_distinct_company_names failed: %s", e)
+            return []
 
     async def search(
         self,

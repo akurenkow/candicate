@@ -23,6 +23,7 @@ from .dto import (
     Project,
     Resume,
 )
+from shared.company_normalize import normalize_company_name
 
 MIN_DELIMITER_DASHES = 5
 
@@ -306,13 +307,13 @@ def _parse_experience_section(experience_text: str) -> list[CompanyExperience]:
             company_name_val = ""
             date_range_val = ""
             if label_field == "company_name":
-                company_name_val = label_value
+                company_name_val = normalize_company_name(label_value)
             elif label_field == "date_range":
                 date_range_val = label_value
             elif label_field == "_content" or label_field == "project_name":
                 pass
             else:
-                company_name_val = raw_content
+                company_name_val = normalize_company_name(raw_content)
             state.current_company = CompanyExperience(
                 metadata={"company_name": company_name_val, "date_range": date_range_val},
                 projects=[],
@@ -337,7 +338,7 @@ def _parse_experience_section(experience_text: str) -> list[CompanyExperience]:
                 if label_field == "date_range":
                     state.current_company.metadata["date_range"] = label_value
                 elif label_field == "company_name":
-                    state.current_company.metadata["company_name"] = label_value
+                    state.current_company.metadata["company_name"] = normalize_company_name(label_value)
                 elif label_field == "role":
                     state.current_company.metadata["role"] = label_value
                 elif label_field == "_content":
@@ -347,7 +348,7 @@ def _parse_experience_section(experience_text: str) -> list[CompanyExperience]:
                         state.current_company.metadata["date_range"] = raw_content
                     else:
                         if not state.current_company.metadata.get("company_name"):
-                            state.current_company.metadata["company_name"] = raw_content
+                            state.current_company.metadata["company_name"] = normalize_company_name(raw_content)
                         else:
                             state.current_company.metadata["date_range"] = raw_content
                 state.company_date_set = True

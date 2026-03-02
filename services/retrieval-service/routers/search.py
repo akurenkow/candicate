@@ -70,3 +70,15 @@ async def search(body: SearchRequest, request: Request) -> dict[str, Any]:
     )
     logger.info("POST /search response request_id=%s chunks_count=%s", trace_id or "-", len(chunks))
     return {"chunks": chunks}
+
+
+@router.get("/owners/{owner_id}/companies")
+async def get_owner_companies(owner_id: str, request: Request) -> dict[str, list[str]]:
+    """Return distinct company_name values for the owner (for case/fuzzy filter resolution)."""
+    trace_id = getattr(request.state, "request_id", "") or ""
+    log_trace(SERVICE_NAME, trace_id, OP_HTTP_IN, "retrieval-service", target_resource="/owners/{owner_id}/companies")
+    vs = _get_vector_search()
+    if isinstance(vs, StubVectorSearch):
+        return {"companies": []}
+    companies = await vs.get_distinct_company_names(owner_id)
+    return {"companies": companies}

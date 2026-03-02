@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import logging
 import time
 from typing import Any
@@ -10,13 +11,15 @@ from config import (
     MODEL_CONTEXT_LIMIT,
     CLARIFY_THRESHOLD,
     ANSWER_THRESHOLD,
+    COMPANY_FUZZY_CUTOFF,
 )
 from prompt_assembler import build_prompt
 from query_decomposition import Subtask
 from query_filters import extract_company_from_query
-from retrieval_client import search as retrieval_search
-from generation_client import generate as generation_generate
+from retrieval_client import search as retrieval_search, get_owner_companies
+from generation_client import generate as generation_generate, generate_clarification as gen_clarification
 from subtask_result import SubtaskResult
+from shared.company_normalize import normalize_company_name
 from shared.telemetry import record_retrieval_duration, record_generation_duration
 
 logger = logging.getLogger(__name__)
@@ -28,6 +31,16 @@ def _max_score(chunks: list[dict[str, Any]]) -> float:
     if not chunks:
         return 0.0
     return max(float(c.get("score", 0) or 0) for c in chunks)
+
+
+def _resolve_company_fuzzy(normalized: str, candidates: list[str], cutoff: float | None = None) -> str | None:
+    """Return best matching stored company name for typo/transliteration (e.g. terkom->tercom), or None."""
+    if not normalized or not candidates:
+        return None
+    if cutoff is None:
+        cutoff = COMPANY_FUZZY_CUTOFF
+    matches = difflib.get_close_matches(normalized, candidates, n=1, cutoff=cutoff)
+    return matches[0] if matches else None
 
 
 async def _retrieve(
@@ -52,9 +65,24 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
     filters: dict[str, str] = {}
     if (owner_id or "").strip():
         filters["owner_id"] = owner_id.strip()
-    company = extract_company_from_query(subtask.query)
-    if company:
-        filters["company_name"] = company
+    company_raw = extract_company_from_query(subtask.query)
+    if company_raw:
+        company_norm = normalize_company_name(company_raw)
+        if company_norm:
+            companies = await get_owner_companies(owner_id, trace_id) if owner_id else []
+            if companies:
+                # Resolve typo/transliteration (e.g. terkom→tercom); use stored value in filter for exact match in Qdrant
+                pairs = [(normalize_company_name(c), c) for c in companies]
+                normalized_list = [p[0] for p in pairs]
+                match_norm = _resolve_company_fuzzy(company_norm, normalized_list)
+                if match_norm:
+                    idx = normalized_list.index(match_norm)
+                    resolved = pairs[idx][1]
+                else:
+                    resolved = company_norm
+            else:
+                resolved = company_norm
+            filters["company_name"] = resolved
     use_filters = filters if filters else None
 
     query = subtask.query
@@ -83,8 +111,16 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
     if not any((c.get("text") or "").strip() for c in chunks):
         return SubtaskResult.failed_no_usable_text()
 
-    # Generate answer from retrieved chunks. Clarification loop disabled: questions were
-    # generated internally and never sent to the user, so we always generate when above CLARIFY.
+    # Score in [CLARIFY, ANSWER): return one clarifying question to user (no internal loop, no clearing validation)
+    if max_score_val < ANSWER_THRESHOLD:
+        t0 = time.perf_counter()
+        clar = await gen_clarification(subtask.query, chunks, [], trace_id=trace_id)
+        record_generation_duration(time.perf_counter() - t0, "query", SERVICE_NAME)
+        if clar.success and (clar.output or "").strip():
+            return SubtaskResult.needs_clarification(clar.output)
+        return SubtaskResult.failed_low_score()
+
+    # Score >= ANSWER_THRESHOLD: generate full answer
     prompt = build_prompt([], chunks, query, MODEL_CONTEXT_LIMIT)
     t0 = time.perf_counter()
     result = await generation_generate(

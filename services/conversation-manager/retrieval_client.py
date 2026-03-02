@@ -52,3 +52,27 @@ async def search(
     except Exception as e:
         logger.warning("Retrieval search failed: %s", e)
         return []
+
+
+async def get_owner_companies(
+    owner_id: str,
+    trace_id: str = "",
+) -> list[str]:
+    """
+    Return distinct company_name values for the owner (for fuzzy filter resolution).
+    On error returns [].
+    """
+    if not (owner_id or "").strip():
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f"{RETRIEVAL_SERVICE_URL.rstrip('/')}/owners/{owner_id.strip()}/companies",
+                headers={"X-Request-ID": trace_id} if trace_id else {},
+            )
+            r.raise_for_status()
+            data: dict[str, Any] = r.json()
+            return data.get("companies") or []
+    except Exception as e:
+        logger.warning("Retrieval get_owner_companies failed: %s", e)
+        return []
