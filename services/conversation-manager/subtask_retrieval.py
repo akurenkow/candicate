@@ -88,11 +88,16 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
                 if match_norm:
                     idx = normalized_list.index(match_norm)
                     resolved = pairs[idx][1]
+                    filters["company_name"] = resolved
                 else:
-                    resolved = company_norm
-            else:
-                resolved = company_norm
-            filters["company_name"] = resolved
+                    # No company match (e.g. "опыт в ML" / "experience in ML" — ML is technology, not company)
+                    # Search by owner_id only so retrieval finds chunks by technology/semantics
+                    logger.info(
+                        "run_retrieval company_norm=%r not in owner companies, skipping company_name filter (query=%r)",
+                        company_norm,
+                        (subtask.query[:50] if subtask.query else ""),
+                    )
+            # If companies list is empty, do not add company_name — search by owner_id only
     use_filters = filters if filters else None
 
     query = subtask.query
