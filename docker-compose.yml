@@ -819,8 +819,8 @@ services:
         max-file: "3"
         tag: "{{.Name}}"
 
-  # ----- Telegram Bot -----
-  telegram-bot:
+  # ----- Clearing Service -----
+  clearing-service:
     build: ./services/clearing-service
     image: rag-clearing-service:latest
     container_name: rag-clearing-service
