@@ -1,7 +1,20 @@
 """Conversation manager configuration (CTR-09, FLOW-01)."""
 
 import os
+from pathlib import Path
 from urllib.parse import quote_plus
+
+# Загружаем .env из корня репозитория (при локальном запуске или если смонтирован в контейнер)
+_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+if _env_path.exists():
+    from dotenv import load_dotenv
+    load_dotenv(_env_path)
+else:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()  # cwd или родительские каталоги
+    except ImportError:
+        pass
 
 
 def get_env(key: str, default: str = "") -> str:

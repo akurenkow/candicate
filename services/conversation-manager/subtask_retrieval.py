@@ -103,6 +103,12 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
         chunks = await _retrieve(query, trace_id, owner_id, use_filters)
 
         if not chunks:
+            logger.info(
+                "run_retrieval no chunks owner_id=%r query=%r attempt=%s -> failed_retrieval (user sees no_documents stub)",
+                owner_id,
+                (query[:60] if query else ""),
+                attempt,
+            )
             return SubtaskResult.failed_retrieval()
 
         max_score_val = _max_score(chunks)
@@ -128,7 +134,14 @@ async def run_retrieval(subtask: Subtask, trace_id: str = "", owner_id: str = ""
 
         if max_score_val < ANSWER_THRESHOLD:
             if attempt >= MAX_CLARIFICATION_ATTEMPTS:
-                return SubtaskResult.failed_retrieval()
+                logger.info(
+                    "run_retrieval clarification_exhausted owner_id=%r max_score=%s < ANSWER_THRESHOLD=%s attempt=%s -> failed_low_score (user sees low_relevance stub)",
+                    owner_id,
+                    max_score_val,
+                    ANSWER_THRESHOLD,
+                    attempt,
+                )
+                return SubtaskResult.failed_low_score()
             t0 = time.perf_counter()
             clar = await gen_clarification(subtask.query, chunks, history, trace_id=trace_id)
             record_generation_duration(time.perf_counter() - t0, "query", SERVICE_NAME)

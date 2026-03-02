@@ -198,12 +198,14 @@ async def process_one(
         and all(r.kind == FAILED_LOW_SCORE for r in results)
     )
     if no_documents_stub:
+        logger.info("finalize no_documents_stub (retrieval returned no chunks or all failed_retrieval) message_id=%s", message_id)
         should_escalate = False
         err_msg = None
         fail_svc = None
         final_assistant_text = NO_DOCUMENTS_STUB_RESPONSE
         final_assistant_text_translated = None
     elif low_relevance_stub:
+        logger.info("finalize low_relevance_stub (score below threshold or clarification exhausted) message_id=%s", message_id)
         should_escalate = False
         err_msg = None
         fail_svc = None
