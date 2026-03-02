@@ -9,6 +9,7 @@ import uuid
 from enum import Enum
 
 import asyncpg
+from asyncpg.exceptions import UniqueViolationError
 import httpx
 from telegram import (
     BotCommand,
@@ -519,18 +520,25 @@ async def _ensure_started(update: Update, context: ContextTypes.DEFAULT_TYPE, pe
     async with pool.acquire() as conn:
         user = await get_user_by_telegram_id(conn, str(tid))
     if user is None:
-        async with pool.acquire() as conn:
-            await create_user(conn, str(tid))
-            if str(tid) in _get_allowed_upload_user_ids():
-                await update_role(conn, str(tid), "candidate")
-        _set_state(tid, BotState.WAITING_HASH)
-        if pending_text and pending_text.strip():
-            _pending_message[tid] = pending_text.strip()
-        await update.message.reply_text(
-            _t("choose_language", "en"),
-            reply_markup=_lang_keyboard(),
-        )
-        return False
+        try:
+            async with pool.acquire() as conn:
+                await create_user(conn, str(tid))
+                if str(tid) in _get_allowed_upload_user_ids():
+                    await update_role(conn, str(tid), "candidate")
+        except UniqueViolationError:
+            async with pool.acquire() as conn:
+                user = await get_user_by_telegram_id(conn, str(tid))
+            _set_state(tid, BotState.ACTIVE)
+            return True
+        if _get_state(tid) == BotState.UNREGISTERED:
+            _set_state(tid, BotState.WAITING_HASH)
+            if pending_text and pending_text.strip():
+                _pending_message[tid] = pending_text.strip()
+            await update.message.reply_text(
+                _t("choose_language", "en"),
+                reply_markup=_lang_keyboard(),
+            )
+            return False
     _set_state(tid, BotState.ACTIVE)
     return True
 
