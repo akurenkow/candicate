@@ -9,8 +9,8 @@ from __future__ import annotations
 _RU_LOWER = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
 _RU_UPPER = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"
 # ч->c, ш->s, щ->s, ж->z, ъ/ь->x (to keep length), ё->e
-_LAT_LOWER = "abvgdeezzijklmnoprstufhccssxyxyeua"
-_LAT_UPPER = "ABVGDEEZZIJKLMNOPRSTUFHCCSSXYXYEUA"
+_LAT_LOWER = "abvgdeezzijklmnoprstufhccssxyxeua"
+_LAT_UPPER = "ABVGDEEZZIJKLMNOPRSTUFHCCSSXYXEUA"
 _CYRILLIC_TO_LATIN = str.maketrans(_RU_LOWER + _RU_UPPER, _LAT_LOWER + _LAT_UPPER)
 
 
