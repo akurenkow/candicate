@@ -11,7 +11,7 @@ from aio_pika import IncomingMessage
 
 import asyncpg
 
-from config import RAG_QUEUE, FALLBACK_RESPONSE, MODEL_WORKING_LANGUAGE
+from config import RAG_QUEUE, FALLBACK_RESPONSE, NO_DOCUMENTS_STUB_RESPONSE, MODEL_WORKING_LANGUAGE
 from db import get_message, update_status, create_pool
 from lock import try_acquire_lock, release_lock, set_processing, release_stale_locks
 from state_machine import STATUS_LOCKED, STATUS_PROCESSING, STATUS_COMPLETED, STATUS_ESCALATED
@@ -185,13 +185,25 @@ async def process_one(
     if not from_cache and pp.stored and pp.stored != FALLBACK_RESPONSE:
         set_cached(working_query, pp.stored, trace_id=trace_id, owner_id=owner_id)
 
-    # При эскалации из-за неудачи перевода ответ не возвращаем пользователю — не сохраняем текст.
-    if should_escalate and pp.translation_failed:
+    # Нет документов по owner_id — не эскалируем, возвращаем заглушку «сначала загрузите резюме».
+    no_documents_stub = (
+        should_escalate
+        and err_msg == "no_documents_found"
+        and fail_svc == "retrieval-service"
+    )
+    if no_documents_stub:
+        should_escalate = False
+        err_msg = None
+        fail_svc = None
+        final_assistant_text = NO_DOCUMENTS_STUB_RESPONSE
+        final_assistant_text_translated = None
+    elif should_escalate and pp.translation_failed:
         final_assistant_text = ""
         final_assistant_text_translated = None
     else:
         final_assistant_text = pp.stored
-        final_assistant_text_translated = pp.translated
+        # При эскалации из-за retrieval/generation fallback не переводим — в БД только stored.
+        final_assistant_text_translated = None if assistant_text_raw == FALLBACK_RESPONSE else pp.translated
 
     async with pool.acquire() as conn:
         to_status = STATUS_ESCALATED if should_escalate else STATUS_COMPLETED

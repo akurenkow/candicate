@@ -13,6 +13,7 @@
 """
 
 import argparse
+import shutil
 import subprocess
 import sys
 import os
@@ -33,13 +34,29 @@ COMPOSE_GPU_FILE = "docker-compose.gpu.yml"
 def _get_python_for_tests() -> str:
     """
     Python-интерпретатор для запуска тестов.
-    Использует PYTHON_TEST_EXECUTABLE из .env, если задан и файл существует; иначе sys.executable.
-    Позволяет зафиксировать версию (например 3.11) при нескольких установленных.
-    На VPS/другой ОС путь из .env может быть от другой машины — тогда используется текущий интерпретатор.
+    Порядок: (1) PYTHON_TEST_EXECUTABLE из env, если задан и исполняемый файл существует;
+    (2) python3.11 из PATH (shutil.which); (3) на Windows — py -3.11;
+    (4) иначе sys.executable.
     """
     exe = os.environ.get("PYTHON_TEST_EXECUTABLE", "").strip()
     if exe and os.path.isfile(exe) and os.access(exe, os.X_OK):
         return exe
+    py311 = shutil.which("python3.11")
+    if py311:
+        return py311
+    if sys.platform == "win32":
+        try:
+            r = subprocess.run(
+                ["py", "-3.11", "-c", "import sys; print(sys.executable)"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=PROJECT_ROOT,
+            )
+            if r.returncode == 0 and r.stdout and os.path.isfile(r.stdout.strip()):
+                return r.stdout.strip()
+        except Exception:
+            pass
     return sys.executable
 
 
@@ -691,7 +708,7 @@ def rebuild_all(no_cache: bool = False, pull: bool = False, prune: bool = False,
 
 
 def main():
-    # Загружаем .env в начале, чтобы PYTHON_TEST_EXECUTABLE и другие переменные были доступны
+    # Загружаем .env в начале, чтобы переменные окружения (в т.ч. опциональная PYTHON_TEST_EXECUTABLE) были доступны
     _load_dotenv_simple(PROJECT_ROOT / ".env")
 
     epilog = """

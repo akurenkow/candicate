@@ -40,6 +40,10 @@ CLEARING_SERVICE_URL = _service_url("CLEARING_SERVICE_URL", "http://clearing-ser
 RETRIEVAL_SERVICE_URL = _service_url("RETRIEVAL_SERVICE_URL", "http://retrieval-service:8000")
 GENERATION_SERVICE_URL = _service_url("GENERATION_SERVICE_URL", "http://generation-service:8000")
 FALLBACK_RESPONSE = get_env("FALLBACK_RESPONSE", "Sorry, I will respond you a bit later.")
+NO_DOCUMENTS_STUB_RESPONSE = get_env(
+    "NO_DOCUMENTS_STUB_RESPONSE",
+    "Сначала загрузите резюме (/update). / Please upload your resume first (/update).",
+)
 RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "10"))
 MODEL_CONTEXT_LIMIT = int(os.getenv("MODEL_CONTEXT_LIMIT", "4096"))
 

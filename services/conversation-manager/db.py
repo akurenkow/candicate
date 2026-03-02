@@ -101,7 +101,7 @@ async def update_status(
         UPDATE rag_messages SET
             status = $1, updated_at = $2,
             user_normalized_text = COALESCE($3, user_normalized_text),
-            assistant_text = COALESCE($4, assistant_text),
+            assistant_text = $4,
             assistant_text_translated = $5,
             processing_lock = COALESCE($6, processing_lock),
             locked_at = COALESCE($7, locked_at),
