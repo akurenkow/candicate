@@ -5,6 +5,7 @@ import asyncio
 import io
 import logging
 import os
+import re
 import uuid
 from enum import Enum
 
@@ -107,6 +108,7 @@ TEXTS = {
         "relevance": "Совпадение? Не думаю. Релевантность: {score:.2f}",
         "resume_accepted": "Резюме принято (job_id: {job_id}). Дождитесь завершения индексации.",
         "no_documents_stub": "Утром деньги, вечером стулья... Сначала загрузите резюмe.",
+        "phone_escalation_reply": "Спасибо, свяжусь с Вами в ближайшее время.",
     },
     "en": {
         "update_resume": "Update resume",
@@ -160,6 +162,7 @@ TEXTS = {
         "relevance": "Relevance: {score:.2f}",
         "resume_accepted": "Resume accepted (job_id: {job_id}).",
         "no_documents_stub": "Please upload your resume first (/update).",
+        "phone_escalation_reply": "Thank you, I will contact you shortly.",
     },
 }
 
@@ -252,6 +255,24 @@ class BotState(str, Enum):
 def _looks_like_token(text: str) -> bool:
     t = (text or "").strip()
     return len(t) >= 20 and t.replace("-", "").replace("_", "").isalnum()
+
+
+def _message_has_url(update: Update) -> bool:
+    if not update.message or not update.message.text:
+        return False
+    entities = update.message.entities or []
+    if any(getattr(e, "type", None) in ("url", "text_link") for e in entities):
+        return True
+    return bool(re.search(r"https?://\S+", update.message.text))
+
+
+def _message_has_phone(update: Update) -> bool:
+    if not update.message or not update.message.text:
+        return False
+    entities = update.message.entities or []
+    if any(getattr(e, "type", None) == "phone_number" for e in entities):
+        return True
+    return bool(re.search(r"\+?[\d\s\-\(\)]{10,}", update.message.text))
 
 
 MAX_RESUME_SIZE_BYTES = 1024 * 1024  # 1MB
@@ -1102,6 +1123,29 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             user = await get_user_by_telegram_id(conn, str(tid))
         if user is not None:
             lang = str(user.get("language") or "en")
+            dialog_owner_id = user.get("dialog_owner_id")
+            if _is_hr_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None) and dialog_owner_id:
+                if _message_has_url(update):
+                    try:
+                        await context.bot.forward_message(
+                            chat_id=int(dialog_owner_id),
+                            from_chat_id=update.message.chat_id,
+                            message_id=update.message.message_id,
+                        )
+                    except Exception as e:
+                        logger.warning("Forward link to candidate failed: %s", e)
+                    return
+                if _message_has_phone(update):
+                    await update.message.reply_text(_t("phone_escalation_reply", lang))
+                    try:
+                        await context.bot.forward_message(
+                            chat_id=int(dialog_owner_id),
+                            from_chat_id=update.message.chat_id,
+                            message_id=update.message.message_id,
+                        )
+                    except Exception as e:
+                        logger.warning("Forward phone message to candidate failed: %s", e)
+                    return
             await _process_chat_message(
                 context,
                 update.message.chat_id,
