@@ -266,6 +266,7 @@ class MatchVacancyBody(BaseModel):
     owner_id: str = ""
     vacancy_text: str = Field(..., min_length=1)
     summary: bool = False
+    target_lang: str = "en"
 
 
 class CoverLetterBody(BaseModel):
@@ -312,6 +313,7 @@ async def match_vacancy(request: Request, body: MatchVacancyBody):
                 include_summary=body.summary,
                 trace_id=trace_id,
                 top_k=RETRIEVAL_TOP_K,
+                target_lang=body.target_lang or "en",
             )
         except Exception as e:
             logger.exception("match_vacancy failed: %s", e)

@@ -894,10 +894,15 @@ async def _do_match_vacancy(
         await update.message.reply_text(_bot_error_message("service_error", lang))
         return
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=90.0) as client:
             r = await client.post(
                 f"{base_url}/match-vacancy",
-                json={"owner_id": str(dialog_owner_id), "vacancy_text": vacancy_text, "summary": False},
+                json={
+                    "owner_id": str(dialog_owner_id),
+                    "vacancy_text": vacancy_text,
+                    "summary": True,
+                    "target_lang": lang if lang in ("ru", "en") else "en",
+                },
             )
     except Exception as e:
         logger.exception("Match API error: %s", e)
@@ -923,11 +928,16 @@ async def _do_match_vacancy(
         return
     item = data[0]
     score = item.get("relevance_score", 0)
+    summary = item.get("summary")
     snippets = item.get("matched_snippets") or []
     lines = [_t("relevance", lang, score=score)]
-    for i, s in enumerate(snippets[:5], 1):
-        t = str(s)
-        lines.append(f"\n[{i}] {t[:300]}{'...' if len(t) > 300 else ''}")
+    if summary and summary.strip():
+        lines.append("")
+        lines.append(summary.strip())
+    else:
+        for i, s in enumerate(snippets[:5], 1):
+            t = str(s)
+            lines.append(f"\n[{i}] {t[:300]}{'...' if len(t) > 300 else ''}")
     await update.message.reply_text("\n".join(lines) if lines else "OK")
 
 

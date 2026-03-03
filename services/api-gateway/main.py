@@ -298,6 +298,8 @@ class MatchVacancyBody(BaseModel):
     owner_id: str = ""
     vacancy_text: str = Field(..., min_length=1)
     summary: bool = False
+    target_lang: str = "en"
+    target_lang: str = "en"
 
 
 class CoverLetterBody(BaseModel):
@@ -333,6 +335,7 @@ async def match_vacancy(request: Request, body: MatchVacancyBody):
                 "owner_id": body.owner_id or "",
                 "vacancy_text": body.vacancy_text,
                 "summary": body.summary,
+                "target_lang": body.target_lang or "en",
             },
             headers={"X-Request-ID": request_id},
         )

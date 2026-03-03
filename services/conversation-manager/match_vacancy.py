@@ -8,6 +8,7 @@ from typing import Any
 
 from retrieval_client import search as retrieval_search
 from generation_client import generate as generation_generate
+from translation_client import translate as translation_translate
 from shared.telemetry import record_rag_pipeline_duration, record_retrieval_duration, record_generation_duration
 
 logger = logging.getLogger(__name__)
@@ -37,10 +38,12 @@ async def run_match_vacancy(
     include_summary: bool,
     trace_id: str = "",
     top_k: int = 10,
+    target_lang: str = "en",
 ) -> list[dict[str, Any]]:
     """
     Match one candidate (owner_id) to vacancy_text. Retrieval is filtered by owner_id; one relevance_score and result.
-    Returns list of one item { owner_id, relevance_score, summary?, matched_snippets } or [].
+    If include_summary and target_lang is 'ru', summary is translated en→ru. Returns list of one item
+    { owner_id, relevance_score, summary?, matched_snippets } or [].
     """
     owner_id = (owner_id or "").strip()
     vacancy_text = (vacancy_text or "").strip()
@@ -79,6 +82,12 @@ async def run_match_vacancy(
         record_generation_duration(time.perf_counter() - t0, "match", SERVICE_NAME)
         if gen.success and (gen.output or "").strip():
             summary_val = gen.output.strip()
+            if summary_val and (target_lang or "en").lower() == "ru":
+                tr = await translation_translate(summary_val, "en", "ru", trace_id=trace_id)
+                if tr.error or not (tr.translated_text or "").strip():
+                    logger.warning("match_vacancy: summary translation en→ru failed: %s", tr.error)
+                else:
+                    summary_val = tr.translated_text.strip()
     record_rag_pipeline_duration(time.perf_counter() - t_pipeline, "match", SERVICE_NAME)
     result = {
         "owner_id": owner_id,
@@ -90,14 +99,17 @@ async def run_match_vacancy(
 
 
 def _build_vacancy_summary_prompt(vacancy_text: str, snippets: list[str], relevance_score: float) -> str:
-    """Prompt for pros, cons, and summary including relevance number."""
+    """Prompt for structured match report: general opinion, pros, cons. Output in English with explicit section headers."""
     context = "\n\n".join(snippets[:8])
     return (
-        "Given the vacancy description and the candidate resume excerpts below, produce a short report.\n\n"
+        "Given the vacancy description and the candidate resume excerpts below, produce a short report in English.\n\n"
         "VACANCY:\n{vacancy}\n\n"
         "CANDIDATE EXCERPTS:\n{context}\n\n"
-        "Output exactly three sections:\n"
-        "1. STRONG SIDES: bullet list of candidate strengths relative to the vacancy.\n"
-        "2. WEAK POINTS: bullet list of gaps or weaknesses relative to the vacancy.\n"
-        "3. SUMMARY: one short paragraph ending with the relevance score as a number in format like 0,81 or 0.75 (use comma as decimal separator). The relevance score is {score}."
+        "Output exactly three sections with these exact headers (copy the headers as-is):\n\n"
+        "1. General opinion\n"
+        "One short paragraph: overall fit for this vacancy. End with the relevance score as a number like 0.81 or 0.75 (use period as decimal separator). The relevance score is {score}.\n\n"
+        "2. Strong sides (how the candidate is useful for this vacancy)\n"
+        "Bullet list of candidate strengths and how they match the vacancy.\n\n"
+        "3. Weak points (missing information and what to pay attention to first)\n"
+        "Bullet list of gaps, missing information, or points to verify first."
     ).format(vacancy=vacancy_text[:2000], context=context[:6000], score=relevance_score)
