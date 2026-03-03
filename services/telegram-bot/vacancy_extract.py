@@ -22,13 +22,16 @@ def _extract_pdf(raw: bytes) -> str | None:
 
         reader = PdfReader(io.BytesIO(raw))
         parts = []
-        for page in reader.pages:
-            t = page.extract_text()
-            if t:
-                parts.append(t)
+        for i, page in enumerate(reader.pages):
+            try:
+                t = page.extract_text()
+                if t and t.strip():
+                    parts.append(t.strip())
+            except Exception as e:
+                logger.warning("PDF page %s extract failed: %s", i + 1, e)
         return "\n".join(parts) if parts else None
     except Exception as e:
-        logger.warning("PDF extract failed: %s", e)
+        logger.warning("PDF extract failed (reader or pages): %s", e, exc_info=True)
         return None
 
 

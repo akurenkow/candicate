@@ -85,6 +85,7 @@ TEXTS = {
         "send_cover_letter_vacancy": "Отправьте описание вакансии: файл (doc/docx/pdf/txt) или текст в одном сообщении.",
         "upload_resume_txt": "Загрузите резюме в формате .txt (макс. 1 МБ).",
         "vacancy_format": "Формат не поддерживается. Используйте doc(x)/pdf/txt.",
+        "vacancy_extract_failed": "Не удалось извлечь текст из файла. Убедитесь, что PDF содержит слой текста (не скан).",
         "file_too_large_1mb": "Маловато будет? Нет. Великовато. Макс. 1 МБ.",
         "download_failed": "Не удалось загрузить файл.",
         "only_txt": "Только .txt.",
@@ -140,6 +141,7 @@ TEXTS = {
         "send_cover_letter_vacancy": "Send the job description: file (doc/docx/pdf/txt) or paste text in one message.",
         "upload_resume_txt": "Upload your resume as .txt file (max 1 MB).",
         "vacancy_format": "Format not supported. Use doc/docx/pdf/txt.",
+        "vacancy_extract_failed": "Could not extract text from file. Ensure the PDF has a text layer (not a scan).",
         "file_too_large_1mb": "File too large (max 1 MB).",
         "download_failed": "Failed to download file.",
         "only_txt": "Only .txt files allowed.",
@@ -1017,7 +1019,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return
         vacancy_text = extract_vacancy_text(filename, bytes(raw))
         if not vacancy_text or not vacancy_text.strip():
-            await update.message.reply_text(_t("vacancy_format", lang))
+            await update.message.reply_text(_t("vacancy_extract_failed", lang))
             return
         _set_state(tid, BotState.ACTIVE)
         await _do_cover_letter(update, context, pool, vacancy_text.strip())
@@ -1043,7 +1045,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return
         vacancy_text = extract_vacancy_text(filename, bytes(raw))
         if not vacancy_text or not vacancy_text.strip():
-            await update.message.reply_text(_t("vacancy_format", lang))
+            await update.message.reply_text(_t("vacancy_extract_failed", lang))
             return
         _set_state(tid, BotState.ACTIVE)
         await _do_match_vacancy(update, context, pool, vacancy_text.strip())
