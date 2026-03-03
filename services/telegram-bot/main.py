@@ -62,7 +62,7 @@ TEXTS = {
         "generate_hash": "Сгенерировать токен",
         "help": "Помощь",
         "link_candidate": "Привязать нового кандидата (фигурально)",
-        "match": "Поехали! (запуск алгоритма сопоставления...)",
+        "match": "Сопоставить",
         "switch_mode": "Переключить режим",
         "help_candidate": "Кандидат: /update — загрузить резюме (.txt), /hash — сгенерировать токен, /letter — сопроводительное письмо по вакансии.",
         "help_recruiter": "Рекрутер: /link [токен] — связаться с кандидатом, /match — сопоставить с вакансией (сначала /link).",
@@ -282,7 +282,7 @@ def _message_has_phone(update: Update) -> bool:
 
 
 MAX_RESUME_SIZE_BYTES = 1024 * 1024  # 1MB
-MAX_VACANCY_TEXT_CHARS = 4000  # ~1 Telegram message
+MAX_VACANCY_TEXT_CHARS = 4096  # Telegram max message length (single message)
 POLL_INTERVAL_SEC = 2
 POLL_MAX_ATTEMPTS = 90  # ~3 min
 MESSAGE_POLL_MAX_ATTEMPTS = 45  # ~1.5 min for RAG
