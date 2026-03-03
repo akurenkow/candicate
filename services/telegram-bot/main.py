@@ -938,7 +938,8 @@ async def _do_match_vacancy(
         for i, s in enumerate(snippets[:5], 1):
             t = str(s)
             lines.append(f"\n[{i}] {t[:300]}{'...' if len(t) > 300 else ''}")
-    await update.message.reply_text("\n".join(lines) if lines else "OK")
+    reply_text = "\n".join(lines) if lines else "OK"
+    await update.message.reply_text(reply_text[:MAX_VACANCY_TEXT_CHARS])
 
 
 async def _do_cover_letter(
