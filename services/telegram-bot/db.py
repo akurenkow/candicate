@@ -44,10 +44,20 @@ async def create_pool() -> asyncpg.Pool:
 
 async def get_user_by_telegram_id(conn: asyncpg.Connection, telegram_id: str) -> asyncpg.Record | None:
     row = await conn.fetchrow(
-        "SELECT id, telegram_id, role, is_active, source, language, mode, dialog_owner_id FROM users WHERE telegram_id = $1",
+        "SELECT id, telegram_id, role, is_active, source, language, mode, dialog_owner_id, pending_state FROM users WHERE telegram_id = $1",
         str(telegram_id),
     )
     return row
+
+
+async def set_pending_state(conn: asyncpg.Connection, telegram_id: str, state: str | None) -> int:
+    """Set or clear persistent bot state (e.g. waiting_cover_letter_vacancy). Survives bot restart."""
+    r = await conn.execute(
+        "UPDATE users SET pending_state = $1 WHERE telegram_id = $2",
+        state,
+        str(telegram_id),
+    )
+    return int(r.split()[-1])
 
 
 async def create_user(conn: asyncpg.Connection, telegram_id: str) -> None:

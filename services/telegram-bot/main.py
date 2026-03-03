@@ -42,6 +42,7 @@ from db import (
     get_user_by_telegram_id,
     insert_hash,
     link_hash,
+    set_pending_state,
     update_language,
     update_mode,
     update_role,
@@ -842,6 +843,8 @@ async def cover_letter_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(_t("candidates_only", str(user.get("language") or "en")))
         return
     _set_state(tid, BotState.WAITING_COVER_LETTER_VACANCY)
+    async with pool.acquire() as conn:
+        await set_pending_state(conn, str(tid), BotState.WAITING_COVER_LETTER_VACANCY.value)
     await update.message.reply_text(_t("send_cover_letter_vacancy", str(user.get("language") or "en")))
 
 
@@ -1003,7 +1006,11 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     candidate_eligible = _is_candidate_eligible(
         user.get("role"), str(user.get("mode")) if user.get("mode") else None
     )
-    if candidate_eligible and state == BotState.WAITING_COVER_LETTER_VACANCY:
+    # Restore WAITING_COVER_LETTER_VACANCY after restart (state is in DB as pending_state)
+    effective_state = state
+    if candidate_eligible and state == BotState.ACTIVE and user.get("pending_state") == BotState.WAITING_COVER_LETTER_VACANCY.value:
+        effective_state = BotState.WAITING_COVER_LETTER_VACANCY
+    if candidate_eligible and effective_state == BotState.WAITING_COVER_LETTER_VACANCY:
         if not is_vacancy_file(filename):
             await update.message.reply_text(_t("vacancy_format", lang))
             return
@@ -1022,6 +1029,8 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await update.message.reply_text(_t("vacancy_extract_failed", lang))
             return
         _set_state(tid, BotState.ACTIVE)
+        async with pool.acquire() as conn:
+            await set_pending_state(conn, str(tid), None)
         await _do_cover_letter(update, context, pool, vacancy_text.strip())
         return
 
@@ -1141,17 +1150,23 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not await _ensure_started(update, context, pending_text=text):
         return
     state = _get_state(tid)
+    pool = context.bot_data["pool"]
+    async with pool.acquire() as conn:
+        user = await get_user_by_telegram_id(conn, str(tid))
+    # Restore WAITING_COVER_LETTER_VACANCY after restart (state persisted in DB)
+    effective_state = state
+    if state == BotState.ACTIVE and user and _is_candidate_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None) and user.get("pending_state") == BotState.WAITING_COVER_LETTER_VACANCY.value:
+        effective_state = BotState.WAITING_COVER_LETTER_VACANCY
 
-    if state == BotState.WAITING_LINK_TOKEN:
+    if effective_state == BotState.WAITING_LINK_TOKEN:
         _set_state(tid, BotState.ACTIVE)
         await _do_link(update, context, text)
         return
-    if state == BotState.WAITING_COVER_LETTER_VACANCY:
-        pool = context.bot_data["pool"]
-        async with pool.acquire() as conn:
-            user = await get_user_by_telegram_id(conn, str(tid))
+    if effective_state == BotState.WAITING_COVER_LETTER_VACANCY:
         if user is None or not _is_candidate_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
             _set_state(tid, BotState.ACTIVE)
+            async with pool.acquire() as conn:
+                await set_pending_state(conn, str(tid), None)
             await update.message.reply_text(_bot_error_message("error_generic", str(user.get("language") or "en") if user else "en"))
             return
         lang = str(user.get("language") or "en")
@@ -1159,6 +1174,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text(_t("description_too_long", lang))
             return
         _set_state(tid, BotState.ACTIVE)
+        async with pool.acquire() as conn:
+            await set_pending_state(conn, str(tid), None)
         await _do_cover_letter(update, context, pool, text)
         return
     if state == BotState.WAITING_VACANCY_TEXT:
