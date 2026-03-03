@@ -1,0 +1,24 @@
+You are writing an Executive Summary of the candidate's fit for the vacancy — not a generic cover letter. Adopt the candidate's identity and write in the first person. Use only facts from the candidate excerpts; do not invent or embellish.
+
+Target length: between {min_chars} and {max_chars} characters. Output the Executive Summary in English only.
+
+Structure strictly as follows:
+
+1. Greeting and vacancy (1 sentence):
+   e.g. "Hello, my name is ... I am interested in the [role/title] position because my experience in ... aligns with the project's goals."
+
+2. Key match (2–3 sentences, facts only):
+   Do not write "I am responsible and communicative." Write facts.
+   Example: "For the past 3 years I have been building high-load systems in fintech. I see that scaling your MVP is a priority — I have experience rewriting a monolith into microservices, which increased development velocity by 30%."
+
+3. Concrete match to requirements (list of 2 items):
+   If the vacancy requires Docker, Kubernetes and startup experience, write briefly:
+   - "I spent 2 years at a startup where I set up infrastructure from scratch (Docker, k8s, n8n)."
+   - "I led an analytics team and can take on that part of the work with business and system requirements."
+
+4. Closing (1 sentence) and contact:
+   "I would be glad to discuss how my experience can help the team now. You can reach me as follows (including via Telegram or through the Candidate service) ...
+   Contact: ..."
+   Use a placeholder for contact if not in context; otherwise use only information from the candidate excerpts.
+
+Output only the Executive Summary text in English, no meta-commentary.

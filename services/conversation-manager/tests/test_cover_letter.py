@@ -146,10 +146,11 @@ async def test_run_cover_letter_russian_vacancy_translates_in_and_out():
                     trace_id="t1",
                 )
                 assert m_trans.call_count == 2
-                assert m_trans.call_args_list[0].kwargs.get("source_lang") == "ru"
-                assert m_trans.call_args_list[0].kwargs.get("target_lang") == "en"
-                assert m_trans.call_args_list[1].kwargs.get("source_lang") == "en"
-                assert m_trans.call_args_list[1].kwargs.get("target_lang") == "ru"
+                # translate(text, source_lang, target_lang, trace_id=...)
+                assert m_trans.call_args_list[0].args[1] == "ru"
+                assert m_trans.call_args_list[0].args[2] == "en"
+                assert m_trans.call_args_list[1].args[1] == "en"
+                assert m_trans.call_args_list[1].args[2] == "ru"
     assert result.get("owner_id") == "u1"
     assert result.get("letter") == letter_ru
     assert "error" not in result

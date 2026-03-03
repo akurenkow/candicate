@@ -63,7 +63,7 @@ TEXTS = {
         "link_candidate": "Привязать нового кандидата (фигурально)",
         "match": "Поехали! (запуск алгоритма сопоставления...)",
         "switch_mode": "Переключить режим",
-        "help_candidate": "Кандидат: /update — загрузить резюме (.txt), /hash — сгенерировать токен, /coverletter — сопроводительное письмо по вакансии.",
+        "help_candidate": "Кандидат: /update — загрузить резюме (.txt), /hash — сгенерировать токен, /letter — сопроводительное письмо по вакансии.",
         "help_recruiter": "Рекрутер: /link [токен] — связаться с кандидатом, /match — сопоставить с вакансией (сначала /link).",
         "help_admin": "Админ: /switch — переключить режим (кандидат ↔ рекрутер). В candidate: /update, /hash. В hr: /link, /match.",
         "cmd_start": "Запуск",
@@ -118,7 +118,7 @@ TEXTS = {
         "link_candidate": "Link candidate",
         "match": "Match",
         "switch_mode": "Switch mode",
-        "help_candidate": "Candidate: /update — upload resume (.txt), /hash — generate token, /coverletter — cover letter from vacancy.",
+        "help_candidate": "Candidate: /update — upload resume (.txt), /hash — generate token, /letter — cover letter from vacancy.",
         "help_recruiter": "Recruiter: /link [token] — link to candidate, /match — match with vacancy (use /link first).",
         "help_admin": "Admin: /switch — toggle mode (candidate ↔ recruiter). In candidate: /update, /hash. In hr: /link, /match.",
         "cmd_start": "Start",
@@ -1318,7 +1318,7 @@ def main() -> None:
     app.add_handler(CommandHandler("lang", lang_handler))
     app.add_handler(CommandHandler("switch", switch_handler))
     app.add_handler(CommandHandler("match", match_handler))
-    app.add_handler(CommandHandler("coverletter", cover_letter_handler))
+    app.add_handler(CommandHandler("letter", cover_letter_handler))
     app.add_handler(CommandHandler("update", update_handler))
     app.add_handler(CommandHandler("ping", ping_handler))
     app.add_handler(CallbackQueryHandler(lang_callback, pattern="^lang:"))
