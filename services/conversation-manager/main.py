@@ -24,6 +24,7 @@ from consumer import start_consumer
 from response_cache import delete_by_owner
 from shared.tracing import OP_HTTP_IN, log_trace
 from match_vacancy import run_match_vacancy
+from cover_letter import run_cover_letter
 
 # Настройка логирования
 logging.basicConfig(
@@ -265,6 +266,37 @@ class MatchVacancyBody(BaseModel):
     owner_id: str = ""
     vacancy_text: str = Field(..., min_length=1)
     summary: bool = False
+
+
+class CoverLetterBody(BaseModel):
+    owner_id: str = Field(..., min_length=1)
+    vacancy_text: str = Field(..., min_length=1)
+
+
+@app.post("/cover-letter")
+async def cover_letter(request: Request, body: CoverLetterBody):
+    """Generate Executive Summary (cover letter) for candidate owner_id from vacancy_text. RAG over owner docs."""
+    lock = _get_match_vacancy_lock()
+    async with lock:
+        trace_id = getattr(request.state, "request_id", str(uuid4()))
+        try:
+            result = await run_cover_letter(
+                owner_id=body.owner_id,
+                vacancy_text=body.vacancy_text,
+                trace_id=trace_id,
+            )
+        except Exception as e:
+            logger.exception("cover_letter failed: %s", e)
+            return Response(
+                content=json.dumps({"owner_id": body.owner_id, "error": "internal_error"}),
+                status_code=200,
+                media_type="application/json",
+            )
+        return Response(
+            content=json.dumps(result),
+            status_code=200,
+            media_type="application/json",
+        )
 
 
 @app.post("/match-vacancy")

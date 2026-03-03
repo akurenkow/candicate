@@ -120,6 +120,16 @@ def _search_chunks(retrieval_url: str, owner_id: str, query: str, top_k: int = 2
     return data.get("chunks") or []
 
 
+def _cover_letter(base_url: str, owner_id: str, vacancy_text: str) -> dict:
+    r = requests.post(
+        f"{base_url}/cover-letter",
+        json={"owner_id": owner_id, "vacancy_text": vacancy_text},
+        timeout=HTTP_TIMEOUT,
+    )
+    assert r.status_code == 200, f"Cover letter expected 200, got {r.status_code}: {r.text}"
+    return r.json()
+
+
 def _cleanup(base_url: str, owner_id: str, conversation_manager_url: str = "") -> None:
     try:
         r = requests.delete(
@@ -168,6 +178,16 @@ def test_e2e_retrieval_returns_chunks_for_uploaded_doc(e2e_document_ready):
         f"Retrieval must return at least one chunk containing 350 and 450 for query '{query}'. "
         f"Returned chunks ({len(chunks)}): {chunk_texts}"
     )
+
+
+def test_e2e_cover_letter_returns_letter_for_uploaded_doc(e2e_document_ready):
+    """Given an ingested document, cover-letter returns a non-empty Executive Summary."""
+    owner_id = e2e_document_ready
+    result = _cover_letter(BASE_URL, owner_id, "Python developer with backend and AI experience.")
+    assert "letter" in result, f"Cover letter response must contain 'letter', got: {result}"
+    letter = (result.get("letter") or "").strip()
+    assert len(letter) >= 100, f"Cover letter must be at least 100 chars, got {len(letter)}: {letter[:200]}"
+    assert "error" not in result or not result.get("error"), f"Cover letter must not return error: {result}"
 
 
 def test_e2e_rag_pipeline(e2e_document_ready):

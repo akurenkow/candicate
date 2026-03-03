@@ -63,7 +63,7 @@ TEXTS = {
         "link_candidate": "Привязать нового кандидата (фигурально)",
         "match": "Поехали! (запуск алгоритма сопоставления...)",
         "switch_mode": "Переключить режим",
-        "help_candidate": "Кандидат: /update — загрузить резюме (.txt), /hash — сгенерировать токен для связи с рекрутером.",
+        "help_candidate": "Кандидат: /update — загрузить резюме (.txt), /hash — сгенерировать токен, /coverletter — сопроводительное письмо по вакансии.",
         "help_recruiter": "Рекрутер: /link [токен] — связаться с кандидатом, /match — сопоставить с вакансией (сначала /link).",
         "help_admin": "Админ: /switch — переключить режим (кандидат ↔ рекрутер). В candidate: /update, /hash. В hr: /link, /match.",
         "cmd_start": "Запуск",
@@ -82,6 +82,7 @@ TEXTS = {
         "candidates_only": "Свой среди чужих... (только для кандидатов).",
         "use_link_first": "Свяжитесь с кандидатом через /link.",
         "send_vacancy_file": "Отправьте файл в формате doc(x)/pdf/txt или краткое описание (не больше 1 сообщения телеграм).",
+        "send_cover_letter_vacancy": "Отправьте описание вакансии: файл (doc/docx/pdf/txt) или текст в одном сообщении.",
         "upload_resume_txt": "Загрузите резюме в формате .txt (макс. 1 МБ).",
         "vacancy_format": "Формат не поддерживается. Используйте doc(x)/pdf/txt.",
         "file_too_large_1mb": "Маловато будет? Нет. Великовато. Макс. 1 МБ.",
@@ -117,7 +118,7 @@ TEXTS = {
         "link_candidate": "Link candidate",
         "match": "Match",
         "switch_mode": "Switch mode",
-        "help_candidate": "Candidate: /update — upload resume (.txt), /hash — generate token for HR link.",
+        "help_candidate": "Candidate: /update — upload resume (.txt), /hash — generate token, /coverletter — cover letter from vacancy.",
         "help_recruiter": "Recruiter: /link [token] — link to candidate, /match — match with vacancy (use /link first).",
         "help_admin": "Admin: /switch — toggle mode (candidate ↔ recruiter). In candidate: /update, /hash. In hr: /link, /match.",
         "cmd_start": "Start",
@@ -136,6 +137,7 @@ TEXTS = {
         "candidates_only": "Candidates only.",
         "use_link_first": "Use /link to link to a candidate.",
         "send_vacancy_file": "Send a file (doc/docx/pdf/txt) or brief description (max 1 Telegram message).",
+        "send_cover_letter_vacancy": "Send the job description: file (doc/docx/pdf/txt) or paste text in one message.",
         "upload_resume_txt": "Upload your resume as .txt file (max 1 MB).",
         "vacancy_format": "Format not supported. Use doc/docx/pdf/txt.",
         "file_too_large_1mb": "File too large (max 1 MB).",
@@ -250,6 +252,7 @@ class BotState(str, Enum):
     ACTIVE = "active"
     RESUME_PENDING = "resume_pending"
     WAITING_VACANCY_TEXT = "waiting_vacancy_text"
+    WAITING_COVER_LETTER_VACANCY = "waiting_cover_letter_vacancy"
 
 
 def _looks_like_token(text: str) -> bool:
@@ -821,6 +824,25 @@ async def match_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text(_t("send_vacancy_file", str(user.get("language") or "en")))
 
 
+async def cover_letter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Ask candidate to send vacancy description (file or text) to generate Executive Summary."""
+    if not update.message or not update.message.from_user:
+        return
+    tid = update.message.from_user.id
+    if not await _ensure_started(update, context):
+        return
+    pool: asyncpg.Pool = context.bot_data["pool"]
+    async with pool.acquire() as conn:
+        user = await get_user_by_telegram_id(conn, str(tid))
+    if user is None:
+        return
+    if not _is_candidate_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
+        await update.message.reply_text(_t("candidates_only", str(user.get("language") or "en")))
+        return
+    _set_state(tid, BotState.WAITING_COVER_LETTER_VACANCY)
+    await update.message.reply_text(_t("send_cover_letter_vacancy", str(user.get("language") or "en")))
+
+
 async def update_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Ask candidate to upload .txt resume."""
     if not update.message or not update.message.from_user:
@@ -904,6 +926,60 @@ async def _do_match_vacancy(
     await update.message.reply_text("\n".join(lines) if lines else "OK")
 
 
+async def _do_cover_letter(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    pool: asyncpg.Pool,
+    vacancy_text: str,
+) -> None:
+    tid = update.message.from_user.id
+    async with pool.acquire() as conn:
+        user = await get_user_by_telegram_id(conn, str(tid))
+    if user is None:
+        return
+    lang = str(user.get("language") or "en")
+    base_url = os.getenv("BASE_API_URL", "").rstrip("/")
+    if not base_url:
+        await update.message.reply_text(_bot_error_message("service_error", lang))
+        return
+    await update.message.reply_text(_t("processing", lang))
+    try:
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            r = await client.post(
+                f"{base_url}/cover-letter",
+                json={"owner_id": str(tid), "vacancy_text": vacancy_text.strip()},
+            )
+    except Exception as e:
+        logger.exception("Cover letter API error: %s", e)
+        await update.message.reply_text(_bot_error_message("request_error", lang))
+        return
+    if r.status_code != 200:
+        try:
+            d = r.json().get("detail", r.text) if r.text else "Unknown error"
+            d = d[0] if isinstance(d, list) and d else d
+            err = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
+        except Exception:
+            err = _t("error_generic", lang)
+        trace_id = _new_trace_id()
+        logger.warning("bot_error cover_letter non-200 trace_id=%s detail=%.200s", trace_id, err)
+        await update.message.reply_text(str(err)[:500] + f" trace_id={trace_id}")
+        return
+    try:
+        data = r.json()
+    except Exception:
+        await update.message.reply_text(_bot_error_message("invalid_response", lang))
+        return
+    letter = data.get("letter")
+    err = data.get("error")
+    if letter:
+        await update.message.reply_text(letter[:4096])
+        return
+    if err == "no_documents":
+        await update.message.reply_text(_t("no_documents_stub", lang))
+        return
+    await update.message.reply_text(_bot_error_message("service_error", lang))
+
+
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle resume file upload or vacancy file for /match."""
     if not update.message or not update.message.from_user or not update.message.document:
@@ -922,6 +998,31 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     lang = str(user.get("language") or "en")
     filename = doc.file_name or ""
+    candidate_eligible = _is_candidate_eligible(
+        user.get("role"), str(user.get("mode")) if user.get("mode") else None
+    )
+    if candidate_eligible and state == BotState.WAITING_COVER_LETTER_VACANCY:
+        if not is_vacancy_file(filename):
+            await update.message.reply_text(_t("vacancy_format", lang))
+            return
+        if doc.file_size and doc.file_size > MAX_VACANCY_FILE_BYTES:
+            await update.message.reply_text(_t("file_too_large_1mb", lang))
+            return
+        try:
+            tg_file = await context.bot.get_file(doc.file_id)
+            raw = await tg_file.download_as_bytearray()
+        except Exception as e:
+            logger.exception("Failed to download vacancy file for cover letter: %s", e)
+            await update.message.reply_text(_t("download_failed", lang))
+            return
+        vacancy_text = extract_vacancy_text(filename, bytes(raw))
+        if not vacancy_text or not vacancy_text.strip():
+            await update.message.reply_text(_t("vacancy_format", lang))
+            return
+        _set_state(tid, BotState.ACTIVE)
+        await _do_cover_letter(update, context, pool, vacancy_text.strip())
+        return
+
     hr_with_dialog = _is_hr_eligible(
         user.get("role"), str(user.get("mode")) if user.get("mode") else None
     ) and bool(user.get("dialog_owner_id"))
@@ -948,9 +1049,6 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _do_match_vacancy(update, context, pool, vacancy_text.strip())
         return
 
-    candidate_eligible = _is_candidate_eligible(
-        user.get("role"), str(user.get("mode")) if user.get("mode") else None
-    )
     if not candidate_eligible:
         await update.message.reply_text(_t("candidates_only", lang))
         return
@@ -1045,6 +1143,21 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if state == BotState.WAITING_LINK_TOKEN:
         _set_state(tid, BotState.ACTIVE)
         await _do_link(update, context, text)
+        return
+    if state == BotState.WAITING_COVER_LETTER_VACANCY:
+        pool = context.bot_data["pool"]
+        async with pool.acquire() as conn:
+            user = await get_user_by_telegram_id(conn, str(tid))
+        if user is None or not _is_candidate_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
+            _set_state(tid, BotState.ACTIVE)
+            await update.message.reply_text(_bot_error_message("error_generic", str(user.get("language") or "en") if user else "en"))
+            return
+        lang = str(user.get("language") or "en")
+        if len(text) >= MAX_VACANCY_TEXT_CHARS:
+            await update.message.reply_text(_t("description_too_long", lang))
+            return
+        _set_state(tid, BotState.ACTIVE)
+        await _do_cover_letter(update, context, pool, text)
         return
     if state == BotState.WAITING_VACANCY_TEXT:
         pool = context.bot_data["pool"]
@@ -1205,6 +1318,7 @@ def main() -> None:
     app.add_handler(CommandHandler("lang", lang_handler))
     app.add_handler(CommandHandler("switch", switch_handler))
     app.add_handler(CommandHandler("match", match_handler))
+    app.add_handler(CommandHandler("coverletter", cover_letter_handler))
     app.add_handler(CommandHandler("update", update_handler))
     app.add_handler(CommandHandler("ping", ping_handler))
     app.add_handler(CallbackQueryHandler(lang_callback, pattern="^lang:"))

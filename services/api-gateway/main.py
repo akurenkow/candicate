@@ -300,6 +300,28 @@ class MatchVacancyBody(BaseModel):
     summary: bool = False
 
 
+class CoverLetterBody(BaseModel):
+    owner_id: str = Field(..., min_length=1)
+    vacancy_text: str = Field(..., min_length=1)
+
+
+@app.post("/cover-letter")
+async def cover_letter(request: Request, body: CoverLetterBody):
+    """Proxy to conversation-manager: generate Executive Summary for candidate from vacancy."""
+    request_id = getattr(request.state, "request_id", str(uuid4()))
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        r = await client.post(
+            f"{CONVERSATION_MANAGER_URL.rstrip('/')}/cover-letter",
+            json={"owner_id": body.owner_id, "vacancy_text": body.vacancy_text},
+            headers={"X-Request-ID": request_id},
+        )
+    return Response(
+        content=r.content,
+        status_code=r.status_code,
+        media_type="application/json",
+    )
+
+
 @app.post("/match-vacancy")
 async def match_vacancy(request: Request, body: MatchVacancyBody):
     """FLOW-03: Proxy to conversation-manager for vacancy match (one at a time)."""
