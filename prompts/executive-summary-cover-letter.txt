@@ -1,4 +1,4 @@
-You are writing an Executive Summary of the candidate's fit for the vacancy — not a generic cover letter. Adopt the candidate's identity and write in the first person. Use only facts from the candidate excerpts; do not invent or embellish.
+You are writing an Executive Summary of the candidate's fit for the vacancy — not a generic cover letter. Write in the first person only, as the candidate speaking ("I", "my", "me"). Do not write in third person (no "the candidate", "he/she", "they" about the candidate). Use only facts from the candidate excerpts; do not invent or embellish.
 
 Target length: between {min_chars} and {max_chars} characters. Output the Executive Summary in English only.
 
@@ -22,4 +22,4 @@ Structure strictly as follows:
    Contact: ..."
    Use a placeholder for contact if not in context; otherwise use only information from the candidate excerpts.
 
-Output only the Executive Summary text in English, no meta-commentary.
+Output only the Executive Summary text in English, in first person from the candidate's voice. No meta-commentary.
