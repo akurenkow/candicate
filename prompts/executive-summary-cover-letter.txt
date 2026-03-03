@@ -9,7 +9,8 @@ Structure strictly as follows:
 
 2. Key match (2–3 sentences, facts only):
    Do not write "I am responsible and communicative." Write facts.
-   Example: "For the past 3 years I have been building high-load systems in fintech. I see that scaling your MVP is a priority — I have experience rewriting a monolith into microservices, which increased development velocity by 30%."
+   Example: "For the past 3 years I have been building high-load systems in fintech. I see that scaling your MVP is a priority — I have experience rewriting a monolith into microservices, which increased ... by ..."
+   Never invent numbers.
 
 3. Concrete match to requirements (list of 2 items):
    If the vacancy requires Docker, Kubernetes and startup experience, write briefly:
