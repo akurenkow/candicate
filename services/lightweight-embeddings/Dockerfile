@@ -10,8 +10,8 @@
 # Скачать wheel: https://download.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp311-cp311-linux_x86_64.whl
 # (можно с другого ПК/сети; при обрывах SFTP см. docs/CHUNKED_FILE_TRANSFER.md — передать по частям и склеить на VPS).
 #
-# Зеркало pip для РФ: при онлайн-установке используется mirror.yandex.ru (быстрее из Москвы чем pypi.org).
-# Переопределить: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple/ ...
+# Зеркало pip для РФ: для остальных пакетов используется PIP_INDEX_URL (mirror.yandex.ru).
+# torch при онлайн-установке берётся с PyPI (на зеркале Яндекса нет torch 2.6.0).
 
 FROM python:3.11-slim
 
@@ -23,10 +23,13 @@ ARG USE_OFFLINE_TORCH=0
 ARG PIP_INDEX_URL=https://mirror.yandex.ru/pypi/simple/
 COPY wheels/ /tmp/wheels/
 RUN --mount=type=cache,target=/root/.cache/pip \
-  if [ "$USE_OFFLINE_TORCH" = "1" ] && [ -n "$(find /tmp/wheels -maxdepth 1 -type f -name '*.whl' 2>/dev/null)" ]; then \
+  if [ "$USE_OFFLINE_TORCH" = "1" ]; then \
+      if [ -z "$(find /tmp/wheels -maxdepth 1 -type f -name '*.whl' 2>/dev/null)" ]; then \
+        echo "ERROR: USE_OFFLINE_TORCH=1 but no .whl in wheels/. Add torch CPU wheel to services/lightweight-embeddings/wheels/ on this host (see docs/CHUNKED_FILE_TRANSFER.md)."; exit 1; \
+      fi; \
       pip install --no-cache-dir /tmp/wheels/*.whl; \
     else \
-      pip install --default-timeout=600 -i "$PIP_INDEX_URL" torch==2.6.0; \
+      pip install --default-timeout=600 -i https://pypi.org/simple/ torch==2.6.0; \
     fi
 
 # Остальные зависимости (sentence-transformers тянет transformers)
