@@ -893,6 +893,7 @@ async def _do_match_vacancy(
     if not base_url:
         await update.message.reply_text(_bot_error_message("service_error", lang))
         return
+    sent = await update.message.reply_text(_t("processing", lang))
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
             r = await client.post(
@@ -906,7 +907,14 @@ async def _do_match_vacancy(
             )
     except Exception as e:
         logger.exception("Match API error: %s", e)
-        await update.message.reply_text(_bot_error_message("request_error", lang))
+        try:
+            await context.bot.edit_message_text(
+                chat_id=sent.chat_id,
+                message_id=sent.message_id,
+                text=_bot_error_message("request_error", lang),
+            )
+        except Exception as ed:
+            logger.warning("edit_message_text after match error failed: %s", ed)
         return
     if r.status_code != 200:
         try:
@@ -917,14 +925,35 @@ async def _do_match_vacancy(
             err = _t("error_generic", lang)
         trace_id = _new_trace_id()
         logger.warning("bot_error match_vacancy non-200 trace_id=%s detail=%.200s", trace_id, err)
-        await update.message.reply_text(str(err)[:500] + f" trace_id={trace_id}")
+        try:
+            await context.bot.edit_message_text(
+                chat_id=sent.chat_id,
+                message_id=sent.message_id,
+                text=str(err)[:500] + f" trace_id={trace_id}",
+            )
+        except Exception as ed:
+            logger.warning("edit_message_text after match non-200 failed: %s", ed)
         return
     data = r.json()
     if not isinstance(data, list):
-        await update.message.reply_text(_bot_error_message("invalid_response", lang))
+        try:
+            await context.bot.edit_message_text(
+                chat_id=sent.chat_id,
+                message_id=sent.message_id,
+                text=_bot_error_message("invalid_response", lang),
+            )
+        except Exception as ed:
+            logger.warning("edit_message_text after match invalid_response failed: %s", ed)
         return
     if not data:
-        await update.message.reply_text(_t("no_results", lang))
+        try:
+            await context.bot.edit_message_text(
+                chat_id=sent.chat_id,
+                message_id=sent.message_id,
+                text=_t("no_results", lang),
+            )
+        except Exception as ed:
+            logger.warning("edit_message_text after match no_results failed: %s", ed)
         return
     item = data[0]
     score = item.get("relevance_score", 0)
@@ -939,7 +968,14 @@ async def _do_match_vacancy(
             t = str(s)
             lines.append(f"\n[{i}] {t[:300]}{'...' if len(t) > 300 else ''}")
     reply_text = "\n".join(lines) if lines else "OK"
-    await update.message.reply_text(reply_text[:MAX_VACANCY_TEXT_CHARS])
+    try:
+        await context.bot.edit_message_text(
+            chat_id=sent.chat_id,
+            message_id=sent.message_id,
+            text=reply_text[:MAX_VACANCY_TEXT_CHARS],
+        )
+    except Exception as e:
+        logger.warning("edit_message_text for match result failed: %s", e)
 
 
 async def _do_cover_letter(
