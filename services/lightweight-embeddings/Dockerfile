@@ -9,9 +9,6 @@
 #   docker build --build-arg USE_OFFLINE_TORCH=1 -t rag-lightweight-embeddings .
 # Скачать wheel: https://download.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp311-cp311-linux_x86_64.whl
 # (можно с другого ПК/сети; при обрывах SFTP см. docs/CHUNKED_FILE_TRANSFER.md — передать по частям и склеить на VPS).
-#
-# Зеркало pip для РФ: для остальных пакетов используется PIP_INDEX_URL (mirror.yandex.ru).
-# torch при онлайн-установке берётся с PyPI (на зеркале Яндекса нет torch 2.6.0).
 
 FROM python:3.11-slim
 
@@ -20,7 +17,6 @@ WORKDIR /app
 # Опционально: установка torch из локального wheel (USE_OFFLINE_TORCH=1 и файл в wheels/)
 # Кэш pip (BuildKit): сохраняет скачанные wheels между сборками — не перекачивать каждый раз.
 ARG USE_OFFLINE_TORCH=0
-ARG PIP_INDEX_URL=https://mirror.yandex.ru/pypi/simple/
 COPY wheels/ /tmp/wheels/
 RUN --mount=type=cache,target=/root/.cache/pip \
   if [ "$USE_OFFLINE_TORCH" = "1" ]; then \
@@ -34,7 +30,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Остальные зависимости (sentence-transformers тянет transformers)
 RUN --mount=type=cache,target=/root/.cache/pip \
-  pip install -i "$PIP_INDEX_URL" \
+  pip install \
     fastapi==0.104.1 \
     uvicorn[standard]==0.24.0 \
     sentence-transformers>=2.7.0 \
