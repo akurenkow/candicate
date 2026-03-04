@@ -27,7 +27,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       if [ -z "$(find /tmp/wheels -maxdepth 1 -type f -name '*.whl' 2>/dev/null)" ]; then \
         echo "ERROR: USE_OFFLINE_TORCH=1 but no .whl in wheels/. Add torch CPU wheel to services/lightweight-embeddings/wheels/ on this host (see docs/CHUNKED_FILE_TRANSFER.md)."; exit 1; \
       fi; \
-      pip install --no-cache-dir /tmp/wheels/*.whl; \
+      pip install --no-cache-dir -i https://pypi.org/simple/ /tmp/wheels/*.whl; \
     else \
       pip install --default-timeout=600 -i https://pypi.org/simple/ torch==2.6.0; \
     fi
