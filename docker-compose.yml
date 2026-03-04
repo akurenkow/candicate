@@ -21,6 +21,26 @@ services:
   # ИНФРАСТРУКТУРНЫЕ СЕРВИСЫ
   # ============================================
 
+  # ----- Nginx (единая точка входа, IP whitelist) -----
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: rag-nginx
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      - api-gateway
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ----- PostgreSQL (история диалогов, документы, политики) -----
   postgres:
     image: postgres:14
@@ -28,8 +48,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "5432:5432"  # проброс для локального подключения (можно закомментировать)
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/initdb:/docker-entrypoint-initdb.d:ro
@@ -67,8 +85,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "6379:6379"  # проброс для локального подключения
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
@@ -90,9 +106,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "6335:6333"   # HTTP API
-      - "6336:6334"   # gRPC  
     volumes:
       - qdrant_data:/qdrant/storage
     environment:
@@ -118,9 +131,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "5672:5672"    # AMQP
-      - "15672:15672"  # Management UI
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - rabbitmq_data:/etc/rabbitmq/conf.d/  # для кастомных конфигов
@@ -151,8 +161,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "9090:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -183,8 +191,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "3100:3100"
     volumes:
       - ./monitoring/loki/loki-config.yml:/etc/loki/local-config.yml:ro
       - loki_data:/loki
@@ -202,8 +208,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "3200:3200"
     volumes:
       - ./observability/tempo-config.yaml:/etc/tempo/tempo.yaml:ro
       - tempo_data:/tmp/tempo
@@ -223,10 +227,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "9464:9464"   # Prometheus exporter
     volumes:
       - ./observability/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
     command: ["--config=/etc/otelcol/config.yaml"]
@@ -243,8 +243,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
@@ -253,6 +251,8 @@ services:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
       GF_INSTALL_PLUGINS: grafana-piechart-panel
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
     depends_on:
       - prometheus
       - loki
@@ -266,7 +266,7 @@ services:
   # МИКРОСЕРВИСЫ PYTHON (RAG ядро)
   # ============================================
 
-  # ----- API Gateway (точка входа) -----
+  # ----- API Gateway (внутренняя точка входа; снаружи — через Nginx) -----
   api-gateway:
     build: ./services/api-gateway
     image: rag-api-gateway:latest
@@ -274,8 +274,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "8001:8000"  # внешний порт 8001 -> внутренний 8000
     environment:
       SERVICE_NAME: api-gateway
       SERVICE_PORT: 8000
@@ -331,8 +329,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "8002:8000"  # внутренний порт, можно не пробрасывать наружу
     volumes:
       - ./prompts:/app/prompts:ro
     environment:
@@ -406,8 +402,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "8003:8000"
     environment:
       SERVICE_NAME: retrieval-service
       SERVICE_PORT: 8000
@@ -458,8 +452,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "8004:8000"
     volumes:
       - ./prompts:/app/prompts:ro
     environment:
@@ -522,8 +514,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "8008:8000"
     volumes:
       - ./prompts:/app/prompts:ro
     environment:
@@ -620,8 +610,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "8006:8000"
     environment:
       SERVICE_NAME: ingestion-service
       SERVICE_PORT: 8000
@@ -748,8 +736,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "8007:8000"
     environment:
       SERVICE_NAME: authz-service
       SERVICE_PORT: 8000
@@ -828,8 +814,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "8009:8000"
     environment:
       SERVICE_NAME: clearing-service
       SERVICE_PORT: 8000

@@ -56,8 +56,6 @@ services:
     restart: unless-stopped
     networks:
       - backend
-    ports:
-      - "8005:8000"
     environment:
       SERVICE_NAME: embedding-service
       SERVICE_PORT: 8000
