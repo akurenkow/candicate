@@ -16,6 +16,7 @@ from telegram import (
     BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InputFile,
     KeyboardButton,
     ReplyKeyboardMarkup,
     Update,
@@ -33,6 +34,12 @@ from vacancy_extract import (
     MAX_VACANCY_FILE_BYTES,
     extract_vacancy_text,
     is_vacancy_file,
+)
+from resume_convert import (
+    MAX_RESUME_CONVERT_BYTES,
+    extract_resume_text,
+    is_resume_convert_file,
+    structure_resume_via_api,
 )
 from db import (
     create_pool,
@@ -64,9 +71,9 @@ TEXTS = {
         "link_candidate": "Привязать нового кандидата (фигурально)",
         "match": "Сопоставить",
         "switch_mode": "Переключить режим",
-        "help_candidate": "Кандидат: /update — загрузить резюме (.txt), /hash — сгенерировать токен, /letter — сопроводительное письмо по вакансии.",
+        "help_candidate": "Кандидат: /convert — конвертировать резюме (hh.ru) в наш формат; /update — загрузить резюме (.txt); /hash — токен; /letter — сопроводительное письмо.",
         "help_recruiter": "Рекрутер: /link [токен] — связаться с кандидатом, /match — сопоставить с вакансией (сначала /link).",
-        "help_admin": "Админ: /switch — переключить режим (кандидат ↔ рекрутер). В candidate: /update, /hash. В hr: /link, /match.",
+        "help_admin": "Админ: /switch — переключить режим (кандидат ↔ рекрутер). В candidate: /convert, /update, /hash. В hr: /link, /match.",
         "cmd_start": "Запуск",
         "cmd_help": "Помощь",
         "cmd_lang": "Язык",
@@ -112,6 +119,13 @@ TEXTS = {
         "resume_accepted": "Резюме принято (job_id: {job_id}). Дождитесь завершения индексации.",
         "no_documents_stub": "Утром деньги, вечером стулья... Сначала загрузите резюмe.",
         "phone_escalation_reply": "Спасибо, свяжусь с Вами в ближайшее время.",
+        "convert_resume": "Конвертировать резюме (hh.ru)",
+        "send_resume_to_convert": "Отправьте файл резюме: doc, rtf, pdf или txt (макс. 2 МБ).",
+        "convert_processing": "Конвертирую резюме в наш формат…",
+        "convert_done": "Готово. Проверьте документ, при необходимости дополните и загрузите через «Обновить резюме».",
+        "convert_failed": "Не удалось структурировать резюме.",
+        "convert_extract_failed": "Не удалось извлечь текст из файла.",
+        "convert_format": "Для конвертации нужен файл doc, rtf, pdf или txt.",
     },
     "en": {
         "update_resume": "Update resume",
@@ -120,9 +134,9 @@ TEXTS = {
         "link_candidate": "Link candidate",
         "match": "Match",
         "switch_mode": "Switch mode",
-        "help_candidate": "Candidate: /update — upload resume (.txt), /hash — generate token, /letter — cover letter from vacancy.",
+        "help_candidate": "Candidate: /convert — convert resume (hh.ru) to our format; /update — upload resume (.txt); /hash — token; /letter — cover letter.",
         "help_recruiter": "Recruiter: /link [token] — link to candidate, /match — match with vacancy (use /link first).",
-        "help_admin": "Admin: /switch — toggle mode (candidate ↔ recruiter). In candidate: /update, /hash. In hr: /link, /match.",
+        "help_admin": "Admin: /switch — toggle mode (candidate ↔ recruiter). In candidate: /convert, /update, /hash. In hr: /link, /match.",
         "cmd_start": "Start",
         "cmd_help": "Help",
         "cmd_lang": "Language",
@@ -168,6 +182,13 @@ TEXTS = {
         "resume_accepted": "Resume accepted (job_id: {job_id}).",
         "no_documents_stub": "Please upload your resume first (/update).",
         "phone_escalation_reply": "Thank you, I will contact you shortly.",
+        "convert_resume": "Convert resume (hh.ru)",
+        "send_resume_to_convert": "Send resume file: doc, rtf, pdf or txt (max 2 MB).",
+        "convert_processing": "Converting resume to our format…",
+        "convert_done": "Done. Review the document, edit if needed, then upload via «Update resume».",
+        "convert_failed": "Failed to structure resume.",
+        "convert_extract_failed": "Could not extract text from file.",
+        "convert_format": "For conversion use doc, rtf, pdf or txt file.",
     },
 }
 
@@ -179,6 +200,7 @@ for _lang, _d in TEXTS.items():
     BTN_TO_ACTION[_d["link_candidate"]] = "link"
     BTN_TO_ACTION[_d["match"]] = "match"
     BTN_TO_ACTION[_d["switch_mode"]] = "switch"
+    BTN_TO_ACTION[_d["convert_resume"]] = "convert"
 
 # Варианты заглушки «нет документов», которые может вернуть CM; бот подменяет их на _t("no_documents_stub", lang)
 NO_DOCUMENTS_STUB_CM_VARIANTS = frozenset({
@@ -232,8 +254,8 @@ def _menu_keyboard(role: str | None, mode: str | None, lang: str | None, dialog_
             ])
         else:
             rows.extend([
-                [KeyboardButton(_t("update_resume", lang)), KeyboardButton(_t("generate_hash", lang))],
-                [KeyboardButton(_t("help", lang))],
+                [KeyboardButton(_t("convert_resume", lang)), KeyboardButton(_t("update_resume", lang))],
+                [KeyboardButton(_t("generate_hash", lang)), KeyboardButton(_t("help", lang))],
             ])
     elif effective == "recruiter":
         rows = [
@@ -242,8 +264,8 @@ def _menu_keyboard(role: str | None, mode: str | None, lang: str | None, dialog_
         ]
     else:
         rows = [
-            [KeyboardButton(_t("update_resume", lang)), KeyboardButton(_t("generate_hash", lang))],
-            [KeyboardButton(_t("help", lang))],
+            [KeyboardButton(_t("convert_resume", lang)), KeyboardButton(_t("update_resume", lang))],
+            [KeyboardButton(_t("generate_hash", lang)), KeyboardButton(_t("help", lang))],
         ]
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
@@ -254,6 +276,7 @@ class BotState(str, Enum):
     WAITING_LINK_TOKEN = "waiting_link_token"
     ACTIVE = "active"
     RESUME_PENDING = "resume_pending"
+    WAITING_RESUME_TO_CONVERT = "waiting_resume_to_convert"
     WAITING_VACANCY_TEXT = "waiting_vacancy_text"
     WAITING_COVER_LETTER_VACANCY = "waiting_cover_letter_vacancy"
 
@@ -848,6 +871,25 @@ async def cover_letter_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(_t("send_cover_letter_vacancy", str(user.get("language") or "en")))
 
 
+async def convert_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Ask candidate to send resume file (doc/rtf/pdf/txt) for conversion to internal format."""
+    if not update.message or not update.message.from_user:
+        return
+    tid = update.message.from_user.id
+    if not await _ensure_started(update, context):
+        return
+    pool: asyncpg.Pool = context.bot_data["pool"]
+    async with pool.acquire() as conn:
+        user = await get_user_by_telegram_id(conn, str(tid))
+    if user is None:
+        return
+    if not _is_candidate_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
+        await update.message.reply_text(_t("candidates_only", str(user.get("language") or "en")))
+        return
+    _set_state(tid, BotState.WAITING_RESUME_TO_CONVERT)
+    await update.message.reply_text(_t("send_resume_to_convert", str(user.get("language") or "en")))
+
+
 async def update_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Ask candidate to upload .txt resume."""
     if not update.message or not update.message.from_user:
@@ -1110,6 +1152,60 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not candidate_eligible:
         await update.message.reply_text(_t("candidates_only", lang))
         return
+
+    if state == BotState.WAITING_RESUME_TO_CONVERT:
+        if not is_resume_convert_file(doc.file_name or ""):
+            await update.message.reply_text(_t("convert_format", lang))
+            return
+        if doc.file_size and doc.file_size > MAX_RESUME_CONVERT_BYTES:
+            await update.message.reply_text(_t("file_too_large_1mb", lang))
+            return
+        try:
+            tg_file = await context.bot.get_file(doc.file_id)
+            raw = await tg_file.download_as_bytearray()
+        except Exception as e:
+            logger.exception("Download resume for convert failed: %s", e)
+            _set_state(tid, BotState.ACTIVE)
+            await update.message.reply_text(_t("download_failed", lang))
+            return
+        raw_text = extract_resume_text(doc.file_name or "", bytes(raw))
+        if not raw_text or not raw_text.strip():
+            _set_state(tid, BotState.ACTIVE)
+            await update.message.reply_text(_t("convert_extract_failed", lang))
+            return
+        base_url = os.getenv("BASE_API_URL", "").rstrip("/")
+        if not base_url:
+            _set_state(tid, BotState.ACTIVE)
+            await update.message.reply_text(_bot_error_message("service_error", lang))
+            return
+        sent = await update.message.reply_text(_t("convert_processing", lang))
+        result = await structure_resume_via_api(base_url, raw_text.strip())
+        _set_state(tid, BotState.ACTIVE)
+        if result.success:
+            try:
+                await context.bot.delete_message(chat_id=sent.chat_id, message_id=sent.message_id)
+            except Exception:
+                pass
+            name = (doc.file_name or "resume").rsplit(".", 1)[0]
+            out_name = f"{name}_resume.txt"
+            if len(result.structured_text) <= 4096:
+                await update.message.reply_text(result.structured_text)
+            else:
+                await update.message.reply_document(
+                    document=InputFile(
+                        result.structured_text.encode("utf-8"),
+                        filename=out_name,
+                    ),
+                )
+            await update.message.reply_text(_t("convert_done", lang))
+        else:
+            await context.bot.edit_message_text(
+                chat_id=sent.chat_id,
+                message_id=sent.message_id,
+                text=_t("convert_failed", lang) + (f" ({result.error})" if result.error else ""),
+            )
+        return
+
     filename = doc.file_name or "resume.txt"
     if not filename.lower().endswith(".txt"):
         _set_state(tid, BotState.ACTIVE)
@@ -1271,13 +1367,16 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if action == "update" and _is_candidate_eligible(role, mode if mode else None):
                 await update_handler(update, context)
                 return
+            if action == "convert" and _is_candidate_eligible(role, mode if mode else None):
+                await convert_handler(update, context)
+                return
             if action == "hash" and _is_candidate_eligible(role, mode if mode else None):
                 await hash_handler(update, context)
                 return
             if action == "switch" and role == "admin":
                 await switch_handler(update, context)
                 return
-            msg_key = "candidates_only" if action in ("update", "hash") else "access_denied"
+            msg_key = "candidates_only" if action in ("update", "hash", "convert") else "access_denied"
             await update.message.reply_text(_t(msg_key, str(user.get("language") or "en")))
         else:
             await update.message.reply_text(_t("access_denied", "en"))
@@ -1385,6 +1484,7 @@ def main() -> None:
     app.add_handler(CommandHandler("switch", switch_handler))
     app.add_handler(CommandHandler("match", match_handler))
     app.add_handler(CommandHandler("letter", cover_letter_handler))
+    app.add_handler(CommandHandler("convert", convert_handler))
     app.add_handler(CommandHandler("update", update_handler))
     app.add_handler(CommandHandler("ping", ping_handler))
     app.add_handler(CallbackQueryHandler(lang_callback, pattern="^lang:"))

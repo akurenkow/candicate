@@ -19,7 +19,7 @@ import httpx
 from pydantic import BaseModel, Field
 from fastapi import HTTPException
 
-from routers import documents
+from routers import documents, resume
 from shared.tracing import OP_HTTP_IN, log_trace
 
 ENV_ALLOWED_UPLOAD_USER_IDS = "ALLOWED_UPLOAD_USER_IDS"
@@ -347,6 +347,7 @@ async def match_vacancy(request: Request, body: MatchVacancyBody):
 
 
 app.include_router(documents.router)
+app.include_router(resume.router)
 
 
 if __name__ == "__main__":
