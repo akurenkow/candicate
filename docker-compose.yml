@@ -474,8 +474,9 @@ services:
       GEMINI_CHAT_MODEL: ${GEMINI_CHAT_MODEL:-gemini-2.0-flash}
       GEMINI_EMBED_MODEL: ${GEMINI_EMBED_MODEL:-text-embedding-004}
       
-      # Параметры генерации
+      # Параметры генерации (GENERATE_MAX_TEXT переопределяет лимит вывода, напр. для match-vacancy)
       MAX_TOKENS: 512
+      GENERATE_MAX_TEXT: ${GENERATE_MAX_TEXT:-1500}
       TEMPERATURE: 0.7
       TOP_P: 0.9
       FREQUENCY_PENALTY: 0.1

@@ -5,10 +5,10 @@ from pydantic import BaseModel
 
 from config import (
     DEFAULT_TEMPERATURE,
+    EFFECTIVE_MAX_TOKENS,
     MAX_RETRIES,
     MIN_TEMPERATURE,
     MAX_TEMPERATURE,
-    MAX_TOKENS,
 )
 from adapters import ProviderLLMAdapter, GenerateParams
 from validation import DefaultOutputValidator
@@ -34,7 +34,7 @@ class GenerateResponse(BaseModel):
 
 
 def _get_pipeline() -> GenerationPipeline:
-    llm = ProviderLLMAdapter(max_tokens=MAX_TOKENS)
+    llm = ProviderLLMAdapter(max_tokens=EFFECTIVE_MAX_TOKENS)
     validator = DefaultOutputValidator()
     retry = RetryController(max_retries=MAX_RETRIES)
     return GenerationPipeline(

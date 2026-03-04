@@ -306,6 +306,21 @@ def _message_has_phone(update: Update) -> bool:
 
 MAX_RESUME_SIZE_BYTES = 1024 * 1024  # 1MB
 MAX_VACANCY_TEXT_CHARS = 4096  # Telegram max message length (single message)
+
+
+def _truncate_at_boundary(text: str, max_chars: int) -> str:
+    """Truncate to max_chars at paragraph or line boundary to avoid cutting mid-sentence."""
+    if len(text) <= max_chars:
+        return text
+    cut = text[: max_chars + 1]
+    for sep in ("\n\n", "\n", ". ", " "):
+        idx = cut.rfind(sep)
+        if idx > max_chars // 2:
+            out = cut[: idx + len(sep)].rstrip() if sep != " " else cut[:idx].rstrip()
+            return out if out else text[:max_chars]
+    return text[:max_chars]
+
+
 POLL_INTERVAL_SEC = 2
 POLL_MAX_ATTEMPTS = 90  # ~3 min
 MESSAGE_POLL_MAX_ATTEMPTS = 45  # ~1.5 min for RAG
@@ -1014,7 +1029,7 @@ async def _do_match_vacancy(
         await context.bot.edit_message_text(
             chat_id=sent.chat_id,
             message_id=sent.message_id,
-            text=reply_text[:MAX_VACANCY_TEXT_CHARS],
+            text=_truncate_at_boundary(reply_text, MAX_VACANCY_TEXT_CHARS),
         )
     except Exception as e:
         logger.warning("edit_message_text for match result failed: %s", e)
@@ -1066,7 +1081,7 @@ async def _do_cover_letter(
     letter = data.get("letter")
     err = data.get("error")
     if letter:
-        await update.message.reply_text(letter[:4096])
+        await update.message.reply_text(_truncate_at_boundary(letter, MAX_VACANCY_TEXT_CHARS))
         return
     if err == "no_documents":
         await update.message.reply_text(_t("no_documents_stub", lang))
