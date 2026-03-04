@@ -2,6 +2,8 @@
 # Основано на https://github.com/lh0x00/lightweight-embeddings
 # Модель: bge-m3 (multilingual, 1024-dim)
 #
+# Сборка: для кэша pip между сборками нужен BuildKit (DOCKER_BUILDKIT=1 или docker buildx).
+#
 # PyTorch: по умолчанию ставится из PyPI (часто быстрее из РФ чем download.pytorch.org).
 # Если скачивание медленное — положите CPU wheel в ./wheels/ и соберите с:
 #   docker build --build-arg USE_OFFLINE_TORCH=1 -t rag-lightweight-embeddings .
@@ -13,16 +15,19 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Опционально: установка torch из локального wheel (USE_OFFLINE_TORCH=1 и файл в wheels/)
+# Кэш pip (BuildKit): сохраняет скачанные wheels между сборками — не перекачивать каждый раз.
 ARG USE_OFFLINE_TORCH=0
 COPY wheels/ /tmp/wheels/
-RUN if [ "$USE_OFFLINE_TORCH" = "1" ] && [ -n "$(find /tmp/wheels -maxdepth 1 -type f -name '*.whl' 2>/dev/null)" ]; then \
+RUN --mount=type=cache,target=/root/.cache/pip \
+  if [ "$USE_OFFLINE_TORCH" = "1" ] && [ -n "$(find /tmp/wheels -maxdepth 1 -type f -name '*.whl' 2>/dev/null)" ]; then \
       pip install --no-cache-dir /tmp/wheels/*.whl; \
     else \
-      pip install --default-timeout=600 --no-cache-dir torch==2.6.0; \
+      pip install --default-timeout=600 torch==2.6.0; \
     fi
 
 # Остальные зависимости (sentence-transformers тянет transformers)
-RUN pip install --no-cache-dir \
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install \
     fastapi==0.104.1 \
     uvicorn[standard]==0.24.0 \
     sentence-transformers>=2.7.0 \

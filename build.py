@@ -60,12 +60,12 @@ def _get_python_for_tests() -> str:
     return sys.executable
 
 
-def run_command(cmd: List[str], description: str) -> bool:
+def run_command(cmd: List[str], description: str, env: Optional[dict] = None) -> bool:
     """Запускает команду в корне проекта и выводит результат. Возвращает True при успехе."""
     print(f"\n>>> {description}")
     print(f"Команда: {' '.join(cmd)}")
     try:
-        subprocess.run(cmd, check=True, cwd=PROJECT_ROOT)
+        subprocess.run(cmd, check=True, cwd=PROJECT_ROOT, env=env if env is not None else os.environ)
         return True
     except subprocess.CalledProcessError as e:
         print(f"Ошибка при выполнении: {e}", file=sys.stderr)
@@ -87,7 +87,8 @@ def build_base(no_cache: bool = False, pull: bool = False) -> bool:
     if pull:
         cmd.append("--pull")
     cmd.extend(["-t", f"{BASE_IMAGE_NAME}:{DEFAULT_TAG}", "-f", BASE_DOCKERFILE, "."])
-    return run_command(cmd, "Сборка базового образа")
+    build_env = {**os.environ, "DOCKER_BUILDKIT": "1"}
+    return run_command(cmd, "Сборка базового образа", env=build_env)
 
 
 def build_service(service_name: str, no_cache: bool = False, pull: bool = False) -> bool:
@@ -117,7 +118,8 @@ def build_service(service_name: str, no_cache: bool = False, pull: bool = False)
             str(PROJECT_ROOT),
         ])
     cmd.extend(["-t", f"rag-{service_name}:{DEFAULT_TAG}"])
-    return run_command(cmd, f"Сборка сервиса {service_name}")
+    build_env = {**os.environ, "DOCKER_BUILDKIT": "1"}
+    return run_command(cmd, f"Сборка сервиса {service_name}", env=build_env)
 
 
 def build_all(no_cache: bool = False, pull: bool = False) -> bool:
