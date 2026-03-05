@@ -8,10 +8,11 @@ from fastapi.testclient import TestClient
 
 _test_dir = Path(__file__).resolve().parent
 _service_root = _test_dir.parent
-_project_root = _service_root.parent.parent
-for p in (str(_project_root), str(_service_root)):
-    if p not in sys.path:
-        sys.path.insert(0, p)
+# Force clearing-service root first so "routers" resolves to this service (not another one under /workspace)
+_service_root_s = str(_service_root)
+if _service_root_s in sys.path:
+    sys.path.remove(_service_root_s)
+sys.path.insert(0, _service_root_s)
 
 from routers.preprocess import router as preprocess_router
 
