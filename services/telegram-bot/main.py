@@ -74,9 +74,22 @@ TEXTS = {
         "help_candidate": "Кандидат: /convert — конвертировать резюме (hh.ru) в наш формат; /update — загрузить резюме (.txt); /hash — токен; /letter — сопроводительное письмо.",
         "help_recruiter": "Рекрутер: /link [токен] — связаться с кандидатом, /match — сопоставить с вакансией (сначала /link).",
         "help_admin": "Админ: /switch — переключить режим (кандидат ↔ рекрутер). В candidate: /convert, /update, /hash. В hr: /link, /match.",
+        "help_common": "🚀 /start — открыть главное меню\n🌐 /lang — переключить язык (en / ru)\n❓ /help — список команд",
+        "help_candidate_block": "♻️ /convert — конвертировать резюме в наш формат\n📄 /update — загрузить резюме\n🔑 /hash — получить токен для передачи рекрутеру\n💌 /letter — сгенерировать сопроводительное письмо по вакансии",
+        "help_recruiter_block": "🔗 /link — привязаться к кандидату по его токену\n🎯 /match — сопоставить кандидата с вакансией",
+        "help_admin_block": "👤 Админ: /switch — переключить режим (кандидат ↔ рекрутер). В режиме кандидата: /convert, /update, /hash, /letter. В режиме рекрутера: /link, /match.",
+        "help_disclaimer": "Пользуясь сервисом, вы даете согласие на обработку данных: ferus.tech/pdn/",
+        "cover_letter_btn": "Сопровод. письмо",
         "cmd_start": "Запуск",
         "cmd_help": "Помощь",
         "cmd_lang": "Язык",
+        "cmd_convert": "Конвертировать резюме",
+        "cmd_update": "Загрузить резюме",
+        "cmd_hash": "Токен для рекрутера",
+        "cmd_letter": "Сопровод. письмо по вакансии",
+        "cmd_link": "Привязаться к кандидату",
+        "cmd_match": "Сопоставить с вакансией",
+        "cmd_switch": "Переключить режим (админ)",
         "choose_language": "Я вас внимательно слушаю. Выберите язык / Choose language:",
         "menu_ready": "Готово. /lang — язык.",
         "menu_mode_admin": "Режим: {mode}. /switch — переключить.",
@@ -142,9 +155,22 @@ TEXTS = {
         "help_candidate": "Candidate: /convert — convert resume (hh.ru) to our format; /update — upload resume (.txt); /hash — token; /letter — cover letter.",
         "help_recruiter": "Recruiter: /link [token] — link to candidate, /match — match with vacancy (use /link first).",
         "help_admin": "Admin: /switch — toggle mode (candidate ↔ recruiter). In candidate: /convert, /update, /hash. In hr: /link, /match.",
+        "help_common": "🚀 /start — open main menu\n🌐 /lang — switch language (en / ru)\n❓ /help — list of commands",
+        "help_candidate_block": "♻️ /convert — convert CV to our format\n📄 /update — upload CV\n🔑 /hash — get a token to share with recruiter\n💌 /letter — generate cover letter for a vacancy",
+        "help_recruiter_block": "🔗 /link — link to candidate by their token\n🎯 /match — match candidate with vacancy",
+        "help_admin_block": "👤 Admin: /switch — switch mode (candidate ↔ recruiter). In candidate mode: /convert, /update, /hash, /letter. In recruiter mode: /link, /match.",
+        "help_disclaimer": "By using the service, you consent to data processing: ferus.tech/pdn/",
+        "cover_letter_btn": "Cover letter",
         "cmd_start": "Start",
         "cmd_help": "Help",
         "cmd_lang": "Language",
+        "cmd_convert": "Convert CV to our format",
+        "cmd_update": "Upload CV",
+        "cmd_hash": "Get token for recruiter",
+        "cmd_letter": "Generate cover letter",
+        "cmd_link": "Link to candidate",
+        "cmd_match": "Match with vacancy",
+        "cmd_switch": "Switch mode (admin)",
         "choose_language": "Choose language:",
         "menu_ready": "Ready. /lang for language.",
         "menu_mode_admin": "Mode: {mode}. /switch to toggle.",
@@ -211,6 +237,7 @@ for _lang, _d in TEXTS.items():
     BTN_TO_ACTION[_d["match"]] = "match"
     BTN_TO_ACTION[_d["switch_mode"]] = "switch"
     BTN_TO_ACTION[_d["convert_resume"]] = "convert"
+    BTN_TO_ACTION[_d["cover_letter_btn"]] = "letter"
 
 # Варианты заглушки «нет документов», которые может вернуть CM; бот подменяет их на _t("no_documents_stub", lang)
 NO_DOCUMENTS_STUB_CM_VARIANTS = frozenset({
@@ -265,7 +292,8 @@ def _menu_keyboard(role: str | None, mode: str | None, lang: str | None, dialog_
         else:
             rows.extend([
                 [KeyboardButton(_t("convert_resume", lang)), KeyboardButton(_t("update_resume", lang))],
-                [KeyboardButton(_t("generate_hash", lang)), KeyboardButton(_t("help", lang))],
+                [KeyboardButton(_t("generate_hash", lang)), KeyboardButton(_t("cover_letter_btn", lang))],
+                [KeyboardButton(_t("help", lang))],
             ])
     elif effective == "recruiter":
         rows = [
@@ -275,7 +303,8 @@ def _menu_keyboard(role: str | None, mode: str | None, lang: str | None, dialog_
     else:
         rows = [
             [KeyboardButton(_t("convert_resume", lang)), KeyboardButton(_t("update_resume", lang))],
-            [KeyboardButton(_t("generate_hash", lang)), KeyboardButton(_t("help", lang))],
+            [KeyboardButton(_t("generate_hash", lang)), KeyboardButton(_t("cover_letter_btn", lang))],
+            [KeyboardButton(_t("help", lang))],
         ]
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
@@ -793,15 +822,17 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     lang = str(user.get("language") or "en") if user else "en"
     role = user.get("role") if user else None
     mode = str(user.get("mode") or "") if user else ""
+    common = _t("help_common", lang)
     if role == "admin":
-        text = _t("help_admin", lang)
+        role_block = _t("help_admin_block", lang)
     elif role == "recruiter" or (role == "admin" and mode == "hr"):
-        text = _t("help_recruiter", lang)
+        role_block = _t("help_recruiter_block", lang)
     elif role == "candidate":
-        text = _t("help_candidate", lang)
+        role_block = _t("help_candidate_block", lang)
     else:
-        # Пользователь не в БД или role is None — считаем рекрутером (не кандидат)
-        text = _t("help_recruiter", lang)
+        role_block = _t("help_recruiter_block", lang)
+    disclaimer = _t("help_disclaimer", lang)
+    text = f"{common}\n\n{role_block}\n\n{disclaimer}"
     kbd = _menu_keyboard(role, mode, lang, user.get("dialog_owner_id") if user else None) if user else None
     await update.message.reply_text(text, reply_markup=kbd)
 
@@ -1472,10 +1503,13 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if action == "hash" and _is_candidate_eligible(role, mode if mode else None):
                 await hash_handler(update, context)
                 return
+            if action == "letter" and _is_candidate_eligible(role, mode if mode else None):
+                await cover_letter_handler(update, context)
+                return
             if action == "switch" and role == "admin":
                 await switch_handler(update, context)
                 return
-            msg_key = "candidates_only" if action in ("update", "hash", "convert") else "access_denied"
+            msg_key = "candidates_only" if action in ("update", "hash", "convert", "letter") else "access_denied"
             await update.message.reply_text(_t(msg_key, str(user.get("language") or "en")))
         else:
             await update.message.reply_text(_t("access_denied", "en"))
@@ -1551,11 +1585,25 @@ async def post_init(app: Application) -> None:
         BotCommand("start", TEXTS["en"]["cmd_start"]),
         BotCommand("help", TEXTS["en"]["cmd_help"]),
         BotCommand("lang", TEXTS["en"]["cmd_lang"]),
+        BotCommand("convert", TEXTS["en"]["cmd_convert"]),
+        BotCommand("update", TEXTS["en"]["cmd_update"]),
+        BotCommand("hash", TEXTS["en"]["cmd_hash"]),
+        BotCommand("letter", TEXTS["en"]["cmd_letter"]),
+        BotCommand("link", TEXTS["en"]["cmd_link"]),
+        BotCommand("match", TEXTS["en"]["cmd_match"]),
+        BotCommand("switch", TEXTS["en"]["cmd_switch"]),
     ]
     cmds_ru = [
         BotCommand("start", TEXTS["ru"]["cmd_start"]),
         BotCommand("help", TEXTS["ru"]["cmd_help"]),
         BotCommand("lang", TEXTS["ru"]["cmd_lang"]),
+        BotCommand("convert", TEXTS["ru"]["cmd_convert"]),
+        BotCommand("update", TEXTS["ru"]["cmd_update"]),
+        BotCommand("hash", TEXTS["ru"]["cmd_hash"]),
+        BotCommand("letter", TEXTS["ru"]["cmd_letter"]),
+        BotCommand("link", TEXTS["ru"]["cmd_link"]),
+        BotCommand("match", TEXTS["ru"]["cmd_match"]),
+        BotCommand("switch", TEXTS["ru"]["cmd_switch"]),
     ]
     await app.bot.set_my_commands(cmds_en, language_code="en")
     await app.bot.set_my_commands(cmds_ru, language_code="ru")
