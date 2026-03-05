@@ -327,6 +327,35 @@ def _truncate_at_boundary(text: str, max_chars: int) -> str:
     return text[:max_chars]
 
 
+def _split_match_reply_by_sections(reply_text: str, max_chars: int) -> list[str]:
+    """Split match reply by section headers (2. / 3.) so each message stays under max_chars."""
+    if len(reply_text) <= max_chars:
+        return [reply_text]
+    idx2 = reply_text.find("\n\n2. ")
+    idx3 = reply_text.find("\n\n3. ")
+    if idx2 > 0 and idx3 > idx2:
+        part1 = reply_text[:idx2].strip()
+        part2 = reply_text[idx2:idx3].strip()
+        part3 = reply_text[idx3:].strip()
+        out = []
+        for block in (part1, part2, part3):
+            while block:
+                if len(block) <= max_chars:
+                    out.append(block)
+                    break
+                out.append(_truncate_at_boundary(block, max_chars))
+                consumed = len(out[-1])
+                block = block[consumed:].lstrip()
+        return out
+    chunks = []
+    rest = reply_text
+    while rest:
+        chunks.append(_truncate_at_boundary(rest, max_chars))
+        consumed = len(chunks[-1])
+        rest = rest[consumed:].lstrip() if consumed < len(rest) else ""
+    return chunks
+
+
 POLL_INTERVAL_SEC = 2
 POLL_MAX_ATTEMPTS = 90  # ~3 min
 MESSAGE_POLL_MAX_ATTEMPTS = 45  # ~1.5 min for RAG
@@ -1048,11 +1077,21 @@ async def _do_match_vacancy(
             lines.append(f"\n[{i}] {t[:300]}{'...' if len(t) > 300 else ''}")
     reply_text = "\n".join(lines) if lines else "OK"
     try:
-        await context.bot.edit_message_text(
-            chat_id=sent.chat_id,
-            message_id=sent.message_id,
-            text=_truncate_at_boundary(reply_text, MAX_VACANCY_TEXT_CHARS),
-        )
+        if len(reply_text) <= MAX_VACANCY_TEXT_CHARS:
+            await context.bot.edit_message_text(
+                chat_id=sent.chat_id,
+                message_id=sent.message_id,
+                text=reply_text,
+            )
+        else:
+            parts = _split_match_reply_by_sections(reply_text, MAX_VACANCY_TEXT_CHARS)
+            await context.bot.edit_message_text(
+                chat_id=sent.chat_id,
+                message_id=sent.message_id,
+                text=parts[0],
+            )
+            for block in parts[1:]:
+                await context.bot.send_message(chat_id=sent.chat_id, text=block)
     except Exception as e:
         logger.warning("edit_message_text for match result failed: %s", e)
 
