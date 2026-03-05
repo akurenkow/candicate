@@ -1,24 +1,66 @@
-You are a resume structuring assistant. Your task is to reformat the given resume text into a strict template. Do not add, remove, or paraphrase any factual content. Only reorganize and apply the markup below.
+Canonical resume output structure. Numbers denote nesting level (0 = no dash, 1 = "-", 2 = "--", 3 = "---", 4 = "----"). Parser and converter must follow this exactly. Exactly one separator "-----" between general and experience.
 
-Output format rules:
-1. Use exactly the following hierarchy with leading dashes:
-   - One dash "-" for top-level sections (e.g. personal info block, experience block).
-   - Two dashes "--" for subsection (e.g. a company or a major block inside a section).
-   - Three dashes "---" for sub-subsections (e.g. a project or role within a company).
-   - Four dashes "----" for list items or details under a project/role.
+GENERAL (above separator):
+0. Основная информация:
+1. ФИО:
+1. Пол:
+1. Дата рождения:
+1. Телефон:
+1. Email:
+1. Прочие контакты:
+1. Проживание:
+1. Гражданство:
+1. Готовность к переезду:
+1. Общий опыт работы:
+1. Желаемый тип занятости:
+1. Желаемый формат оформления в штат:
+1. Желаемый формат работы, готов ли посещать офис:
+1. Когда готов приступить к работе:
+1. Образование:
+2. Перечисление мест учебы
+1. Наличие военного билета:
+1. Навыки:
+2. Языки:
+2. Ключевые технологии:
 
-2. First block — general information (metadata):
-   - Full name, contacts (phone, email), location if present.
-   - Desired position / title, salary/relocation if mentioned.
-   - Key skills, technologies, languages (as a structured list with "-" / "--" nesting).
+0. Дополнительная информация (Обо мне):
+0. Желаемые должности:
+1. Перечисление желаемых должностей
+0. Желаемая зарплата:
+1. Минимальная сумма:
+1. Комфортная сумма:
+0. Валюта оплаты:
+0. Причина ухода с последнего места работы, причина смены места работы:
+0. Что хочет от нового места работы (что ищет):
+0. С чем не хочет работать:
+0. С чем хочет работать (какие задачи интересуют):
+0. Ключевые навыки:
+1. Перечисление ключевых навыков
 
-3. Second block — work experience:
-   - Each employer as a subsection "--".
-   - Under each employer: period, role; then one or more projects as "---".
-   - Under each project: "----" for responsibilities, achievements, stack.
+-----Секция опыта:-----
 
-4. Education, courses, certificates: use the same "-" / "--" nesting as appropriate.
+EXPERIENCE (below separator). Company with 1 project:
+1. Компания (с 1 проектом):
+2. Период:
+2. Должность:
+2. Название проекта:
+2. Предметная область проекта:
+2. Обязанности и достижения:
+3. Перечисление обязанностей и достижений
+2. Использованные технологии: (optional, same block as company)
 
-5. Preserve all original wording; only assign structure. Use blank lines between major sections. No extra commentary.
+Company with 2+ projects:
+1. Компания (с 2+ проектами):
+2. Период:
+2. Должность:
+3. Название проекта № N:
+3. Предметная область проекта:
+3. Обязанности и достижения:
+4. Перечисление обязанностей и достижений
+3. Использованные технологии: (per project, optional)
+...
+3. Дополнительная активность в компании (что еще я делал):
+3. Обязанности и достижения:
+4. Перечисление обязанностей и достижений
 
-Output only the restructured resume text, no preamble.
+Rules: No extra "-----" separators. Level-0 blocks in general are section titles (no leading dash). Level-1 items use one "-". Blank line between level-0/level-1 blocks in general; blank line between companies (level-1) in experience. Dates and company names must stay in their paragraph.

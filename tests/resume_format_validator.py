@@ -134,3 +134,14 @@ def validate_resume_structured_format(text: str) -> List[str]:
                 errors.append("Experience: max nesting is 4 levels (----). Found level {}: '{}'".format(lvl, s[:50]))
 
     return errors
+
+
+def assert_conforms_to_resume_structure(text: str, message: str = "") -> None:
+    """
+    Assert that resume text conforms to the target structure.
+    Raises AssertionError with list of validation errors if invalid.
+    """
+    errors = validate_resume_structured_format(text)
+    if errors:
+        header = message or "Resume does not conform to required structure"
+        raise AssertionError(f"{header}: " + "; ".join(errors))

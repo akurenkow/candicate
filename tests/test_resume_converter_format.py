@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from resume_format_validator import validate_resume_structured_format
+from resume_format_validator import assert_conforms_to_resume_structure, validate_resume_structured_format
 
 _TEST_DIR = Path(__file__).resolve().parent
 _DATA_DIR = _TEST_DIR / "data"
@@ -119,6 +119,63 @@ class TestResumeFormatValidator:
         errs = validate_resume_structured_format(INVALID_NO_SEPARATOR)
         assert any("separator" in e.lower() or "missing" in e.lower() for e in errs), "Expected error about missing separator: %s" % errs
 
+    def test_assert_conforms_passes_for_valid(self):
+        assert_conforms_to_resume_structure(VALID_MINIMAL)
+
+    def test_assert_conforms_raises_for_invalid(self):
+        with pytest.raises(AssertionError) as exc_info:
+            assert_conforms_to_resume_structure(INVALID_NO_SEPARATOR)
+        assert "structure" in str(exc_info.value).lower() or "separator" in str(exc_info.value).lower()
+
+
+def _raw_text_from_file(path: Path, ext: str) -> str | None:
+    """Get raw text for convert: .txt read directly; .doc/.rtf/.pdf via extract if available."""
+    if ext == "txt":
+        return _read_optional(path)
+    try:
+        raw_bytes = path.read_bytes()
+    except (OSError, PermissionError):
+        return None
+    try:
+        import sys
+        _root = path.resolve().parents[2]
+        _bot = _root / "services" / "telegram-bot"
+        for p in (_root, _bot):
+            if str(p) not in sys.path:
+                sys.path.insert(0, str(p))
+        from resume_convert import extract_resume_text
+        return extract_resume_text(path.name, raw_bytes) or None
+    except Exception:
+        return None
+
+
+class TestConvertedDocumentsConformToStructure:
+    """Converted documents in each of 4 input formats must conform to required resume structure."""
+
+    RESUME_BASE = "Куренков Антон Андреевич"
+    FORMATS = ("txt", "doc", "rtf", "pdf")
+
+    @pytest.mark.parametrize("fmt", FORMATS)
+    def test_converted_output_conforms_to_structure(self, fmt):
+        """For each format (txt, doc, rtf, pdf), convert via API and assert output conforms to structure."""
+        path = _RAW_DIR / f"{self.RESUME_BASE}.{fmt}"
+        assert path.is_file(), "Raw file not found: %s" % path.name
+        raw_text = _raw_text_from_file(path, fmt)
+        assert raw_text, "Could not get raw text for format %s" % fmt
+        import httpx
+        api_url = os.getenv("API_GATEWAY_URL", "http://localhost:8001").rstrip("/")
+        with httpx.Client(timeout=120.0) as client:
+            r = client.post(
+                f"{api_url}/resume/convert",
+                json={"raw_text": raw_text[:50000]},
+            )
+        if r.status_code != 200:
+            pytest.fail("Resume convert failed for %s: %s %s" % (fmt, r.status_code, r.text[:300]))
+        data = r.json()
+        structured = (data.get("structured_text") or "").strip()
+        assert structured, "Empty structured_text for format %s" % fmt
+        assert_conforms_to_resume_structure(structured, message="Format %s" % fmt)
+
 
 class TestResumeConversionFromRaw:
     """Conversion from tests/data/raw to updated format and format validation."""
@@ -131,25 +188,17 @@ class TestResumeConversionFromRaw:
 
     def test_converted_output_passes_format_validation(self, raw_txt_files):
         """Run conversion on each raw .txt and assert output passes format validation (integration: needs API)."""
-        if not raw_txt_files:
-            pytest.skip("No .txt files in tests/data/raw")
-        try:
-            import httpx
-        except ImportError:
-            pytest.skip("httpx not installed")
+        assert raw_txt_files, "No .txt files in tests/data/raw"
+        import httpx
         api_url = os.getenv("API_GATEWAY_URL", "http://localhost:8001").rstrip("/")
         for path in raw_txt_files:
             raw_text = _read_optional(path)
-            if raw_text is None:
-                pytest.skip("Cannot read %s (permission or missing)" % path)
-            try:
-                with httpx.Client(timeout=120.0) as client:
-                    r = client.post(
-                        f"{api_url}/resume/convert",
-                        json={"raw_text": raw_text[:50000]},
-                    )
-            except Exception as e:
-                pytest.skip("Resume convert API not available: %s" % e)
+            assert raw_text is not None, "Cannot read %s" % path
+            with httpx.Client(timeout=120.0) as client:
+                r = client.post(
+                    f"{api_url}/resume/convert",
+                    json={"raw_text": raw_text[:50000]},
+                )
             if r.status_code != 200:
                 pytest.fail("Resume convert failed for %s: %s %s" % (path.name, r.status_code, r.text[:200]))
             data = r.json()
