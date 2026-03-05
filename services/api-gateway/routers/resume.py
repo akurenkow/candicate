@@ -27,6 +27,11 @@ _DATE_RANGE_LINE = re.compile(
     r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\s+—)",
     re.I,
 )
+_WATERMARK_LINE = re.compile(
+    r"^\s*(Резюме\s+обновлено|обновлено\s+.*\s+в\s+\d|.*\s+•\s+Резюме\s+обновлено|"
+    r"Resume\s+updated|Updated\s+.*\d{4})\s*$",
+    re.I,
+)
 
 _DEFAULT_SYSTEM_PROMPT = """You are a resume structuring assistant. Reformat the given resume fragment into the strict template. Do not add, remove, or paraphrase factual content. Only reorganize and apply markup.
 
@@ -100,10 +105,24 @@ def _split_raw_general_experience(raw_text: str) -> tuple[str, str]:
     return "\n".join(general_lines).strip(), "\n".join(experience_lines).strip()
 
 
+def _strip_watermark_lines(text: str) -> str:
+    """Remove watermark/footer lines and lines that are only dashes (-----/----) so they do not appear in converted output."""
+    out = []
+    for line in text.split("\n"):
+        s = line.strip()
+        if _WATERMARK_LINE.match(s):
+            continue
+        if re.match(r"^-{3,}$", s):
+            continue
+        out.append(line)
+    return "\n".join(out).strip()
+
+
 def _split_experience_into_company_blocks(experience_text: str) -> list[str]:
     """Split experience section into blocks by date-range line or company-like line (structural boundaries)."""
     if not experience_text.strip():
         return []
+    experience_text = _strip_watermark_lines(experience_text)
     lines = experience_text.split("\n")
     blocks: list[list[str]] = []
     current: list[str] = []
@@ -208,9 +227,12 @@ async def resume_convert(body: ResumeConvertBody):
                 company_blocks = _split_experience_into_company_blocks(experience_raw)
                 company_outputs: list[str] = []
                 for i, block in enumerate(company_blocks):
+                    block_clean = _strip_watermark_lines(block)
+                    if not block_clean.strip():
+                        continue
                     out = await _call_generate(
                         client,
-                        f"Reformat this company/employment block (block {i + 1} of {len(company_blocks)}).\n\n{block}",
+                        f"Reformat this company/employment block (block {i + 1} of {len(company_blocks)}).\n\n{block_clean}",
                         experience_prompt_text,
                     )
                     company_outputs.append(out)
@@ -242,8 +264,8 @@ async def resume_convert(body: ResumeConvertBody):
                 results.append(out)
             joined = "\n\n".join(results)
             if re.search(r"-{5,}", joined):
-                joined = re.sub(r"\n*-{5,}[^\n]*\n*", "\n-----\n", joined, count=1)
-                joined = re.sub(r"\n*-{5,}[^\n]*", "", joined)
+                joined = re.sub(r"\n*-{5,}[^\n]*", "\n-----\n", joined)
+                joined = re.sub(r"(\n-----\n)(\n-----\n)+", r"\1", joined)
             structured = joined.strip()
 
     return {"structured_text": structured}
