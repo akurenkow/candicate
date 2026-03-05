@@ -62,7 +62,15 @@ def _load_prompt(env_key: str, default_relative: str) -> str:
         p = Path(path)
         if p.is_file():
             return p.read_text(encoding="utf-8", errors="replace")
-    for root in (Path(__file__).resolve().parents[3], Path(__file__).resolve().parents[2], Path.cwd()):
+    resolved = Path(__file__).resolve()
+    roots = []
+    for i in range(1, 6):
+        try:
+            roots.append(resolved.parents[i])
+        except IndexError:
+            break
+    roots.append(Path.cwd())
+    for root in roots:
         p = root / "prompts" / default_relative
         if p.is_file():
             return p.read_text(encoding="utf-8", errors="replace")
