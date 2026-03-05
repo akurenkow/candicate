@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 _test_dir = Path(__file__).resolve().parent
 _service_root = _test_dir.parent
 _project_root = _service_root.parent.parent
-for p in (str(_service_root), str(_project_root)):
+for p in (str(_project_root), str(_service_root)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
