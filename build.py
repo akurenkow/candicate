@@ -412,6 +412,10 @@ def run_tests_with_coverage() -> bool:
         "tests/test_e2e_ingestion_flow.py",
         "tests/test_e2e_rag_pipeline.py",
         "tests/test_e2e_match_vacancy.py",
+        "tests/test_e2e_telegram_links_phones.py",
+        "tests/test_telemetry_safeguard.py",
+        "tests/test_resume_converter_format.py",
+        "tests/test_e2e_resume_convert_structure.py",
         "-v", "--tb=short",
         "--cov=services", "--cov-report=term-missing",
     ]

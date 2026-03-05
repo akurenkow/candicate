@@ -323,12 +323,15 @@ async def cover_letter(request: Request, body: CoverLetterBody):
     )
 
 
+MATCH_VACANCY_TIMEOUT = float(os.getenv("MATCH_VACANCY_TIMEOUT", "300.0"))
+
+
 @app.post("/match-vacancy")
 async def match_vacancy(request: Request, body: MatchVacancyBody):
     """FLOW-03: Proxy to conversation-manager for vacancy match (one at a time)."""
     request_id = getattr(request.state, "request_id", str(uuid4()))
     try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        async with httpx.AsyncClient(timeout=MATCH_VACANCY_TIMEOUT) as client:
             r = await client.post(
                 f"{CONVERSATION_MANAGER_URL.rstrip('/')}/match-vacancy",
                 json={
