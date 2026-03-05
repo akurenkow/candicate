@@ -129,6 +129,8 @@ TEXTS = {
         "convert_format": "Для конвертации нужен файл doc, rtf, pdf или txt.",
         "match_timeout": "Таймаут при анализе вакансии. Попробуйте снова.",
         "match_summary_failed": "Анализ вакансии не завершён: {error}.",
+        "long_message_use_letter": "Сообщение слишком длинное для чата. Используйте команду /letter для генерации сопроводительного письма по вакансии.",
+        "long_message_use_match": "Сообщение слишком длинное для чата. Используйте команду /match для подбора по вакансии.",
     },
     "en": {
         "update_resume": "Update resume",
@@ -195,6 +197,8 @@ TEXTS = {
         "convert_format": "For conversion use doc, rtf, pdf or txt file.",
         "match_timeout": "Match analysis timed out. Try again.",
         "match_summary_failed": "Match analysis did not complete: {error}.",
+        "long_message_use_letter": "Message too long for chat. Use /letter to generate a cover letter for the vacancy.",
+        "long_message_use_match": "Message too long for chat. Use /match to run vacancy match.",
     },
 }
 
@@ -312,6 +316,7 @@ def _message_has_phone(update: Update) -> bool:
 
 MAX_RESUME_SIZE_BYTES = 1024 * 1024  # 1MB
 MAX_VACANCY_TEXT_CHARS = 4096  # Telegram max message length (single message)
+MAX_CHAT_MESSAGE_CHARS = 1000  # In normal chat, messages longer than this get fallback to /letter or /match
 
 
 def _truncate_at_boundary(text: str, max_chars: int) -> str:
@@ -1026,14 +1031,29 @@ async def _do_match_vacancy(
             logger.warning("edit_message_text after match error failed: %s", ed)
         return
     if r.status_code != 200:
-        try:
-            d = r.json().get("detail", r.text) if r.text else "Unknown error"
-            d = d[0] if isinstance(d, list) and d else d
-            err = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
-        except Exception:
-            err = _t("error_generic", lang)
         trace_id = _new_trace_id()
-        logger.warning("bot_error match_vacancy non-200 trace_id=%s detail=%.200s", trace_id, err)
+        err: str
+        try:
+            body = r.text or ""
+            if not body.strip():
+                err = _t("error_generic", lang)
+            else:
+                data = r.json()
+                if not isinstance(data, dict):
+                    err = body[:400] if len(body) > 400 else body
+                else:
+                    d = data.get("detail", body)
+                    d = d[0] if isinstance(d, list) and d else d
+                    err = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
+        except Exception as parse_exc:
+            err = _t("error_generic", lang)
+            body_preview = (r.text or "")[:500].replace("\n", " ")
+            logger.warning(
+                "bot_error match_vacancy non-200 trace_id=%s status=%s parse_err=%s body_preview=%.300s",
+                trace_id, r.status_code, parse_exc, body_preview,
+            )
+        else:
+            logger.warning("bot_error match_vacancy non-200 trace_id=%s status=%s detail=%.200s", trace_id, r.status_code, err)
         try:
             await context.bot.edit_message_text(
                 chat_id=sent.chat_id,
@@ -1480,6 +1500,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             user = await get_user_by_telegram_id(conn, str(tid))
         if user is not None:
             lang = str(user.get("language") or "en")
+            if len(text) > MAX_CHAT_MESSAGE_CHARS:
+                if _is_candidate_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
+                    await update.message.reply_text(_t("long_message_use_letter", lang))
+                elif _is_hr_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
+                    await update.message.reply_text(_t("long_message_use_match", lang))
+                else:
+                    await update.message.reply_text(_t("long_message_use_match", lang))
+                return
             dialog_owner_id = user.get("dialog_owner_id")
             if _is_hr_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None) and dialog_owner_id:
                 if _message_has_url(update):

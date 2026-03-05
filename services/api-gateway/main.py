@@ -299,7 +299,6 @@ class MatchVacancyBody(BaseModel):
     vacancy_text: str = Field(..., min_length=1)
     summary: bool = False
     target_lang: str = "en"
-    target_lang: str = "en"
 
 
 class CoverLetterBody(BaseModel):
@@ -328,22 +327,37 @@ async def cover_letter(request: Request, body: CoverLetterBody):
 async def match_vacancy(request: Request, body: MatchVacancyBody):
     """FLOW-03: Proxy to conversation-manager for vacancy match (one at a time)."""
     request_id = getattr(request.state, "request_id", str(uuid4()))
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        r = await client.post(
-            f"{CONVERSATION_MANAGER_URL.rstrip('/')}/match-vacancy",
-            json={
-                "owner_id": body.owner_id or "",
-                "vacancy_text": body.vacancy_text,
-                "summary": body.summary,
-                "target_lang": body.target_lang or "en",
-            },
-            headers={"X-Request-ID": request_id},
+    try:
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            r = await client.post(
+                f"{CONVERSATION_MANAGER_URL.rstrip('/')}/match-vacancy",
+                json={
+                    "owner_id": body.owner_id or "",
+                    "vacancy_text": body.vacancy_text,
+                    "summary": body.summary,
+                    "target_lang": body.target_lang or "en",
+                },
+                headers={"X-Request-ID": request_id},
+            )
+        return Response(
+            content=r.content,
+            status_code=r.status_code,
+            media_type="application/json",
         )
-    return Response(
-        content=r.content,
-        status_code=r.status_code,
-        media_type="application/json",
-    )
+    except httpx.TimeoutException as e:
+        logger.warning("match-vacancy downstream timeout: %s", e)
+        return Response(
+            content='{"detail":[{"msg":"conversation-manager timeout"}]}',
+            status_code=504,
+            media_type="application/json",
+        )
+    except (httpx.ConnectError, httpx.RemoteProtocolError) as e:
+        logger.warning("match-vacancy downstream error: %s", e)
+        return Response(
+            content='{"detail":[{"msg":"conversation-manager unavailable"}]}',
+            status_code=502,
+            media_type="application/json",
+        )
 
 
 app.include_router(documents.router)
