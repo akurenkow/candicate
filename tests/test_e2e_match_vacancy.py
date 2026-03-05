@@ -141,3 +141,19 @@ def test_e2e_match_vacancy_unknown_owner_returns_empty(e2e_owner_id):
         summary=False,
     )
     assert results == [], f"Expected empty list for unknown owner, got: {results}"
+
+
+def test_e2e_match_vacancy_validation_empty_vacancy_returns_422_with_detail():
+    """Validation: empty vacancy_text returns 422 with detail[] so bot can parse and show msg."""
+    r = requests.post(
+        f"{BASE_URL}/match-vacancy",
+        json={"owner_id": "o", "vacancy_text": "", "summary": False},
+        timeout=HTTP_TIMEOUT,
+    )
+    assert r.status_code == 422, f"Expected 422 for empty vacancy_text, got {r.status_code}: {r.text}"
+    data = r.json()
+    assert "detail" in data, f"Response must contain detail for bot parsing: {data}"
+    detail = data["detail"]
+    assert isinstance(detail, list), f"detail must be list: {type(detail)}"
+    assert len(detail) >= 1, f"detail must have at least one item: {detail}"
+    assert "msg" in detail[0], f"First detail item must have msg for bot: {detail[0]}"

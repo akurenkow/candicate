@@ -15,10 +15,12 @@ if _s not in sys.path:
 from main import (
     BotState,
     BTN_TO_ACTION,
+    MAX_CHAT_MESSAGE_CHARS,
     MAX_RESUME_SIZE_BYTES,
     MAX_VACANCY_TEXT_CHARS,
     TEXTS,
     _do_link,
+    _do_match_vacancy,
     _get_allowed_upload_user_ids,
     _get_state,
     _is_candidate_eligible,
@@ -745,6 +747,106 @@ async def test_message_handler_recruiter_plain_text_calls_process_chat(pool_mock
                 await message_handler(u, ctx)
     process_chat.assert_called_once()
     main_mod._user_states.pop(77798, None)
+
+
+@pytest.mark.asyncio
+async def test_message_handler_active_long_message_candidate_replies_use_letter(pool_mock):
+    """In normal chat, candidate message > MAX_CHAT_MESSAGE_CHARS gets fallback suggesting /letter."""
+    long_text = "x" * (MAX_CHAT_MESSAGE_CHARS + 1)
+    u = _make_update_message(tid=77800, text=long_text, message_id=105)
+    u.message.entities = []
+    u.message.reply_text = AsyncMock()
+    ctx = _make_context(pool_mock)
+    _set_state(77800, BotState.ACTIVE)
+    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None, "language": "en"})):
+        with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
+            await message_handler(u, ctx)
+    u.message.reply_text.assert_called_once()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "long_message_use_letter", "en")
+    main_mod._user_states.pop(77800, None)
+
+
+@pytest.mark.asyncio
+async def test_message_handler_active_long_message_hr_replies_use_match(pool_mock):
+    """In normal chat, HR message > MAX_CHAT_MESSAGE_CHARS gets fallback suggesting /match."""
+    long_text = "y" * (MAX_CHAT_MESSAGE_CHARS + 1)
+    u = _make_update_message(tid=77801, text=long_text, message_id=106)
+    u.message.entities = []
+    u.message.reply_text = AsyncMock()
+    ctx = _make_context(pool_mock)
+    _set_state(77801, BotState.ACTIVE)
+    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "999888", "language": "ru"})):
+        with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
+            await message_handler(u, ctx)
+    u.message.reply_text.assert_called_once()
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "long_message_use_match", "ru")
+    main_mod._user_states.pop(77801, None)
+
+
+@pytest.mark.asyncio
+async def test_do_match_vacancy_non200_json_detail_shows_msg(pool_mock):
+    """When match-vacancy API returns non-200 with JSON detail[].msg, user sees that msg and trace_id."""
+    u = _make_update_message(tid=77802, text="vacancy text", message_id=107)
+    u.message.reply_text = AsyncMock()
+    u.message.chat_id = 1
+    sent_msg = MagicMock()
+    sent_msg.chat_id = 1
+    sent_msg.message_id = 108
+    u.message.reply_text.return_value = sent_msg
+    ctx = _make_context(pool_mock)
+    ctx.bot.edit_message_text = AsyncMock()
+    fake_response = MagicMock()
+    fake_response.status_code = 502
+    fake_response.text = '{"detail":[{"msg":"conversation-manager unavailable"}]}'
+    fake_response.json.return_value = {"detail": [{"msg": "conversation-manager unavailable"}]}
+
+    with patch.dict(os.environ, {"BASE_API_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "o1", "language": "en"})):
+            with patch("main.httpx.AsyncClient") as ac_mock:
+                client_inst = MagicMock()
+                client_inst.post = AsyncMock(return_value=fake_response)
+                ac_ctx = AsyncMock()
+                ac_ctx.__aenter__ = AsyncMock(return_value=client_inst)
+                ac_ctx.__aexit__ = AsyncMock(return_value=None)
+                ac_mock.return_value = ac_ctx
+                await _do_match_vacancy(u, ctx, pool_mock, "vacancy text")
+    ctx.bot.edit_message_text.assert_called_once()
+    edit_text = ctx.bot.edit_message_text.call_args[1]["text"]
+    assert "conversation-manager unavailable" in edit_text
+    assert "trace_id=" in edit_text
+
+
+@pytest.mark.asyncio
+async def test_do_match_vacancy_non200_non_json_uses_fallback_and_trace_id(pool_mock):
+    """When match-vacancy API returns non-200 with non-JSON body, user sees generic error and trace_id."""
+    u = _make_update_message(tid=77803, text="vacancy text", message_id=109)
+    u.message.reply_text = AsyncMock()
+    u.message.chat_id = 2
+    sent_msg = MagicMock()
+    sent_msg.chat_id = 2
+    sent_msg.message_id = 110
+    u.message.reply_text.return_value = sent_msg
+    ctx = _make_context(pool_mock)
+    ctx.bot.edit_message_text = AsyncMock()
+    fake_response = MagicMock()
+    fake_response.status_code = 502
+    fake_response.text = "<html>Gateway Error</html>"
+    fake_response.json.side_effect = ValueError("not json")
+
+    with patch.dict(os.environ, {"BASE_API_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "o2", "language": "en"})):
+            with patch("main.httpx.AsyncClient") as ac_mock:
+                client_inst = MagicMock()
+                client_inst.post = AsyncMock(return_value=fake_response)
+                ac_ctx = AsyncMock()
+                ac_ctx.__aenter__ = AsyncMock(return_value=client_inst)
+                ac_ctx.__aexit__ = AsyncMock(return_value=None)
+                ac_mock.return_value = ac_ctx
+                await _do_match_vacancy(u, ctx, pool_mock, "vacancy text")
+    ctx.bot.edit_message_text.assert_called_once()
+    edit_text = ctx.bot.edit_message_text.call_args[1]["text"]
+    assert "trace_id=" in edit_text
+    assert TEXTS["en"]["error_generic"] in edit_text
 
 
 @pytest.mark.asyncio
