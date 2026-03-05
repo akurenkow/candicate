@@ -14,6 +14,7 @@ from generation_client import GenerateResult
 from match_vacancy import (
     _relevance_score_for_chunks,
     _matched_snippets,
+    _sanitize_summary_text,
     run_match_vacancy,
 )
 
@@ -45,6 +46,15 @@ def test_matched_snippets_respects_order_and_limit():
     snippets = _matched_snippets(chunks, max_snippets=2)
     assert snippets == ["high", "mid"]
     assert len(snippets) <= 2
+
+
+def test_sanitize_summary_text_strips_markdown():
+    """Match summary is plain text: no *, #, _, `, etc."""
+    assert _sanitize_summary_text("**Bold** and _italic_") == "Bold and italic"
+    assert _sanitize_summary_text("# Header\nbody") == "Header\nbody"
+    assert _sanitize_summary_text("  a  * b  ") == "a b"
+    assert _sanitize_summary_text("") == ""
+    assert _sanitize_summary_text("  ") == ""
 
 
 def test_matched_snippets_skips_empty_text():

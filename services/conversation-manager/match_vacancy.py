@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
+
+# Strip Markdown/formatting chars from LLM summary so output is plain text (Telegram, API).
+_MARKDOWN_STRIP_RE = re.compile(r"[*#_`\[\]()]+")
 
 from config import GENERATE_MAX_CHUNK, MATCHING_REVIEW_MIN_SIZE, MATCHING_REVIEW_MAX_SIZE
 from retrieval_client import search as retrieval_search
@@ -31,6 +35,14 @@ def _matched_snippets(chunks: list[dict[str, Any]], max_snippets: int = 10) -> l
     with_text = [(s, t) for s, t in with_text if t]
     with_text.sort(key=lambda x: -x[0])
     return [t for _, t in with_text[:max_snippets]]
+
+
+def _sanitize_summary_text(text: str) -> str:
+    """Remove Markdown/formatting chars so match summary is plain text for API and Telegram."""
+    if not (text or "").strip():
+        return (text or "").strip()
+    out = _MARKDOWN_STRIP_RE.sub("", (text or "").strip())
+    return re.sub(r" +", " ", out).strip()
 
 
 async def run_match_vacancy(
@@ -100,13 +112,14 @@ async def run_match_vacancy(
             summary_val = _build_match_summary_headers().format(
                 general=parts[0], strong=parts[1], weak=parts[2]
             )
+            summary_val = _sanitize_summary_text(summary_val)
             if summary_val and (target_lang or "en").lower() == "ru":
                 tr = await translation_translate(summary_val, "en", "ru", trace_id=trace_id)
                 if tr.error or not (tr.translated_text or "").strip():
                     logger.warning("match_vacancy: summary translation en→ru failed: %s", tr.error)
                     summary_error = "match_summary_translation_failed"
                 else:
-                    summary_val = tr.translated_text.strip()
+                    summary_val = _sanitize_summary_text(tr.translated_text.strip())
     record_rag_pipeline_duration(time.perf_counter() - t_pipeline, "match", SERVICE_NAME)
     result: dict[str, Any] = {
         "owner_id": owner_id,
