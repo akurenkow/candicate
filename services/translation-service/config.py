@@ -24,3 +24,5 @@ TRANSLATE_PROMPT_PATH_RU_EN = get_env("TRANSLATE_PROMPT_PATH_RU_EN", get_env("TR
 TRANSLATE_PROMPT_PATH_EN_RU = get_env("TRANSLATE_PROMPT_PATH_EN_RU", "/app/prompts/translate-en-ru.txt")
 # Default temperature for translation
 DEFAULT_TEMPERATURE = float(os.getenv("DEFAULT_TEMPERATURE", "0.3"))
+# Max output tokens for translation (default 512 in provider truncates long match summary)
+TRANSLATION_MAX_TOKENS = int(os.getenv("TRANSLATION_MAX_TOKENS", "8192"))

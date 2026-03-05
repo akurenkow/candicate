@@ -15,6 +15,7 @@ from config import (
     TRANSLATE_PROMPT_PATH_EN_RU,
     TRANSLATE_PROMPT_PATH_RU_EN,
     DEFAULT_TEMPERATURE,
+    TRANSLATION_MAX_TOKENS,
 )
 
 logger = logging.getLogger(__name__)
@@ -121,7 +122,12 @@ def translate_via_ollama(
     messages = [{"role": "user", "content": prompt}]
 
     async def _do_chat():
-        return await provider.chat(messages, model=chat_model, temperature=temp)
+        return await provider.chat(
+            messages,
+            model=chat_model,
+            temperature=temp,
+            max_tokens=TRANSLATION_MAX_TOKENS,
+        )
 
     try:
         result = asyncio.run(_do_chat())
@@ -133,7 +139,12 @@ def translate_via_ollama(
             messages = [{"role": "user", "content": prompt}]
             try:
                 result = asyncio.run(
-                    provider.chat(messages, model=FALLBACK_MODEL, temperature=temp)
+                    provider.chat(
+                        messages,
+                        model=FALLBACK_MODEL,
+                        temperature=temp,
+                        max_tokens=TRANSLATION_MAX_TOKENS,
+                    )
                 )
                 out = _sanitize_translation(result, target_lang)
                 return out or text

@@ -1080,25 +1080,22 @@ async def _do_match_vacancy(
         for i, s in enumerate(snippets[:5], 1):
             t = str(s)
             lines.append(f"\n[{i}] {t[:300]}{'...' if len(t) > 300 else ''}")
-    reply_text = "\n".join(lines) if lines else "OK"
+    full_reply_text = "\n".join(lines) if lines else "OK"
+    message_parts = (
+        [full_reply_text]
+        if len(full_reply_text) <= MAX_VACANCY_TEXT_CHARS
+        else _split_match_reply_by_sections(full_reply_text, MAX_VACANCY_TEXT_CHARS)
+    )
     try:
-        if len(reply_text) <= MAX_VACANCY_TEXT_CHARS:
-            await context.bot.edit_message_text(
-                chat_id=sent.chat_id,
-                message_id=sent.message_id,
-                text=reply_text,
-            )
-        else:
-            parts = _split_match_reply_by_sections(reply_text, MAX_VACANCY_TEXT_CHARS)
-            await context.bot.edit_message_text(
-                chat_id=sent.chat_id,
-                message_id=sent.message_id,
-                text=parts[0],
-            )
-            for block in parts[1:]:
-                await context.bot.send_message(chat_id=sent.chat_id, text=block)
+        await context.bot.edit_message_text(
+            chat_id=sent.chat_id,
+            message_id=sent.message_id,
+            text=message_parts[0],
+        )
+        for part in message_parts[1:]:
+            await context.bot.send_message(chat_id=sent.chat_id, text=part)
     except Exception as e:
-        logger.warning("edit_message_text for match result failed: %s", e)
+        logger.warning("match result send failed: %s", e)
 
 
 async def _do_cover_letter(

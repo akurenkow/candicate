@@ -547,6 +547,7 @@ services:
       TRANSLATE_PROMPT_PATH_RU_EN: /app/prompts/translate-ru-en.txt
       TRANSLATE_PROMPT_PATH_EN_RU: /app/prompts/translate-en-ru.txt
       DEFAULT_TEMPERATURE: "0.3"
+      TRANSLATION_MAX_TOKENS: ${TRANSLATION_MAX_TOKENS:-8192}
       METRICS_PORT: 8000
       OTEL_SERVICE_NAME: translation-service
     depends_on:
