@@ -103,8 +103,8 @@ def _parse_labeled_field(content: str) -> tuple[Literal["date_range", "company_n
 
 def _dash_level(line: str) -> int:
     """
-    Number of leading dashes (after optional whitespace).
-    "- " -> 1, "-- " -> 2, "--- " -> 3, "---- " -> 4. No dash -> 0.
+    Number of leading dashes (after optional whitespace). Indentation/tabs do not affect hierarchy.
+    "- " -> 1, "-- " -> 2, "--- " -> 3, "---- " -> 4. No dash -> 0 (top-level).
     """
     stripped = line.lstrip()
     if not stripped or stripped[0] != "-":

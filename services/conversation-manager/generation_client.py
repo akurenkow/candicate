@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from config import GENERATION_SERVICE_URL
+from config import GENERATION_CHUNK_TIMEOUT, GENERATION_SERVICE_URL
 from shared.tracing import OP_HTTP_OUT, log_trace
 
 logger = logging.getLogger(__name__)
@@ -25,15 +25,20 @@ async def generate(
     context_query: str | None = None,
     system_prompt: str | None = None,
     validate_verbosity: bool = False,
+    max_tokens: int | None = None,
+    timeout: float | None = None,
     trace_id: str = "",
 ) -> GenerateResult:
-    """Call POST /generate. Returns result with output on success."""
+    """Call POST /generate. Timeout applies per request (one chunk). Returns result with output on success."""
     log_trace(SERVICE_NAME, trace_id, OP_HTTP_OUT, "generation-service", target_resource="/generate")
     payload = {"prompt": prompt, "context_query": context_query, "validate_verbosity": validate_verbosity}
     if system_prompt is not None:
         payload["system_prompt"] = system_prompt
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
+    t = timeout if timeout is not None else GENERATION_CHUNK_TIMEOUT
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=t) as client:
             r = await client.post(
                 f"{GENERATION_SERVICE_URL.rstrip('/')}/generate",
                 json=payload,

@@ -42,6 +42,7 @@ class GenerationPipeline:
         system_prompt: str | None = None,
         model: str | None = None,
         validate_verbosity: bool = False,
+        max_tokens: int | None = None,
     ) -> PipelineResult:
         temperature = self._default_temperature
         current_prompt = prompt
@@ -52,6 +53,7 @@ class GenerationPipeline:
                 temperature=max(self._min_t, min(self._max_t, temperature)),
                 model=model,
                 system_prompt=system_prompt,
+                max_tokens=max_tokens,
             )
             output = self._llm.generate(params)
             last_validation = self._validator.validate(

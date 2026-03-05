@@ -24,6 +24,7 @@ class GenerateRequest(BaseModel):
     system_prompt: str | None = None
     model: str | None = None
     validate_verbosity: bool = False
+    max_tokens: int | None = None
 
 
 class GenerateResponse(BaseModel):
@@ -58,6 +59,7 @@ def generate(
         system_prompt=body.system_prompt,
         model=body.model,
         validate_verbosity=body.validate_verbosity,
+        max_tokens=body.max_tokens,
     )
     return GenerateResponse(
         success=result.success,

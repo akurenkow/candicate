@@ -2,8 +2,10 @@
 
 import io
 import logging
+import os
 from dataclasses import dataclass
 
+import httpx
 from vacancy_extract import extract_vacancy_text, is_vacancy_file
 
 logger = logging.getLogger(__name__)
@@ -41,12 +43,14 @@ class ConvertResult:
     error: str | None = None
 
 
+RESUME_CONVERT_REQUEST_TIMEOUT = float(os.getenv("RESUME_CONVERT_REQUEST_TIMEOUT", "600.0"))
+
+
 async def structure_resume_via_api(base_url: str, raw_text: str) -> ConvertResult:
-    """POST raw_text to BASE_API_URL/resume/convert, return structured text."""
+    """POST raw_text to BASE_API_URL/resume/convert (chunked on gateway). Timeout is for the whole request."""
     url = f"{base_url.rstrip('/')}/resume/convert"
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        async with httpx.AsyncClient(timeout=RESUME_CONVERT_REQUEST_TIMEOUT) as client:
             r = await client.post(url, json={"raw_text": raw_text})
         if r.status_code != 200:
             try:
@@ -54,12 +58,18 @@ async def structure_resume_via_api(base_url: str, raw_text: str) -> ConvertResul
                 err = d.get("detail", r.text)
             except Exception:
                 err = r.text or str(r.status_code)
-            return ConvertResult(success=False, structured_text="", error=str(err)[:500])
+            err_str = str(err)[:500] if not isinstance(err, str) else err[:500]
+            if r.status_code == 504:
+                err_str = "resume_convert_chunk_timeout"
+            return ConvertResult(success=False, structured_text="", error=err_str)
         data = r.json()
         out = (data.get("structured_text") or "").strip()
         if not out:
             return ConvertResult(success=False, structured_text="", error="empty_response")
         return ConvertResult(success=True, structured_text=out)
+    except httpx.TimeoutException as e:
+        logger.warning("resume/convert request timeout: %s", e)
+        return ConvertResult(success=False, structured_text="", error="resume_convert_chunk_timeout")
     except Exception as e:
         logger.exception("resume/convert request failed: %s", e)
         return ConvertResult(success=False, structured_text="", error=str(e))

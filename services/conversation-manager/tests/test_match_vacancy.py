@@ -130,11 +130,20 @@ async def test_run_match_vacancy_no_summary_does_not_call_generation():
 @pytest.mark.asyncio
 async def test_run_match_vacancy_summary_true_invokes_generation():
     chunks = [{"chunk_id": "1", "text": "snippet", "score": 0.8, "metadata": {}}]
+    gen_results = [
+        GenerateResult(success=True, output="Overall fit 0.80.", attempts=1),
+        GenerateResult(success=True, output="- Python\n- SQL", attempts=1),
+        GenerateResult(success=True, output="- Gap in X", attempts=1),
+    ]
+
+    def side_effect(*args, **kwargs):
+        return gen_results.pop(0) if gen_results else gen_results[0]
+
     with patch("match_vacancy.retrieval_search", new_callable=AsyncMock, return_value=chunks):
         with patch(
             "match_vacancy.generation_generate",
             new_callable=AsyncMock,
-            return_value=GenerateResult(success=True, output="Pros: X. Cons: Y. Summary: 0,80.", attempts=1),
+            side_effect=gen_results,
         ) as gen_mock:
             result = await run_match_vacancy(
                 owner_id="u1",
@@ -142,11 +151,14 @@ async def test_run_match_vacancy_summary_true_invokes_generation():
                 include_summary=True,
                 trace_id="t1",
             )
-            gen_mock.assert_called_once()
+            assert gen_mock.call_count == 3
             assert len(result) == 1
-            assert result[0].get("summary") == "Pros: X. Cons: Y. Summary: 0,80."
+            assert "1. General opinion\n" in result[0].get("summary", "")
+            assert "2. Strong sides" in result[0].get("summary", "")
+            assert "3. Weak points" in result[0].get("summary", "")
             assert result[0]["relevance_score"] == 0.8
             assert result[0]["matched_snippets"] == ["snippet"]
+            assert "error" not in result[0]
 
 
 @pytest.mark.asyncio
@@ -198,4 +210,5 @@ async def test_run_match_vacancy_generation_failure_still_returns_result_without
             assert result[0]["owner_id"] == "u1"
             assert result[0]["relevance_score"] == 0.7
             assert "summary" not in result[0]
+            assert result[0].get("error") == "timeout"
             assert result[0]["matched_snippets"] == ["snippet"]

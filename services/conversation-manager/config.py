@@ -86,7 +86,9 @@ POSTPROCESS_EMBED_TIMEOUT = float(os.getenv("POSTPROCESS_EMBED_TIMEOUT", "30.0")
 COVER_LETTER_MIN_SIZE = int(os.getenv("COVER_LETTER_MIN_SIZE", "500"))
 COVER_LETTER_MAX_SIZE = int(os.getenv("COVER_LETTER_MAX_SIZE", "1500"))
 
-# Match vacancy: total size of candidate review (characters)
+# Match vacancy: chunk limit for each summary block (tokens); only chunk size + Telegram message limit apply
+GENERATE_MAX_CHUNK = int(os.getenv("GENERATE_MAX_CHUNK", "1000"))
+GENERATION_CHUNK_TIMEOUT = float(os.getenv("GENERATION_CHUNK_TIMEOUT", "120.0"))
 MATCHING_REVIEW_MIN_SIZE = int(os.getenv("MATCHING_REVIEW_MIN_SIZE", "500"))
 MATCHING_REVIEW_MAX_SIZE = int(os.getenv("MATCHING_REVIEW_MAX_SIZE", "1500"))
 COVER_LETTER_DEFAULT_LANG = get_env("COVER_LETTER_DEFAULT_LANG", "en").lower()

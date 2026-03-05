@@ -280,9 +280,14 @@ services:
       
       # URL внутренних сервисов
       CONVERSATION_MANAGER_URL: http://conversation-manager:8000
+      GENERATION_SERVICE_URL: http://generation-service:8000
       INGESTION_SERVICE_URL: http://ingestion-service:8000
       AUTHZ_SERVICE_URL: http://authz-service:8000
-      
+
+      # Конвертация резюме: лимит вывода на один чанк (токены), таймаут на чанк (сек)
+      GENERATE_MAX_CHUNK: ${GENERATE_MAX_CHUNK:-1000}
+      RESUME_CONVERT_CHUNK_TIMEOUT: ${RESUME_CONVERT_CHUNK_TIMEOUT:-90}
+
       # Инфраструктура
       REDIS_URL: redis://redis:6379/0
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
@@ -353,7 +358,11 @@ services:
       GENERATION_SERVICE_URL: http://generation-service:8000
       EMBEDDING_SERVICE_URL: http://embedding-service:8000
       AUTHZ_SERVICE_URL: http://authz-service:8000
-      
+
+      # Match summary: лимит вывода на один чанк (токены), таймаут на один вызов генерации (сек)
+      GENERATE_MAX_CHUNK: ${GENERATE_MAX_CHUNK:-1000}
+      GENERATION_CHUNK_TIMEOUT: ${GENERATION_CHUNK_TIMEOUT:-120}
+
       # Параметры RAG
       ANSWER_THRESHOLD: ${ANSWER_THRESHOLD:-0.7}
       CLARIFY_THRESHOLD: ${CLARIFY_THRESHOLD:-0.4}

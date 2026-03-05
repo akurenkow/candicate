@@ -124,8 +124,11 @@ TEXTS = {
         "convert_processing": "Конвертирую резюме в наш формат…",
         "convert_done": "Готово. Проверьте документ, при необходимости дополните и загрузите через «Обновить резюме».",
         "convert_failed": "Не удалось структурировать резюме.",
+        "convert_timeout": "Таймаут при конвертации резюме (один из блоков не успел). Попробуйте снова или сократите текст.",
         "convert_extract_failed": "Не удалось извлечь текст из файла.",
         "convert_format": "Для конвертации нужен файл doc, rtf, pdf или txt.",
+        "match_timeout": "Таймаут при анализе вакансии. Попробуйте снова.",
+        "match_summary_failed": "Анализ вакансии не завершён: {error}.",
     },
     "en": {
         "update_resume": "Update resume",
@@ -187,8 +190,11 @@ TEXTS = {
         "convert_processing": "Converting resume to our format…",
         "convert_done": "Done. Review the document, edit if needed, then upload via «Update resume».",
         "convert_failed": "Failed to structure resume.",
+        "convert_timeout": "Resume conversion timed out (one of the blocks did not complete). Try again or shorten the text.",
         "convert_extract_failed": "Could not extract text from file.",
         "convert_format": "For conversion use doc, rtf, pdf or txt file.",
+        "match_timeout": "Match analysis timed out. Try again.",
+        "match_summary_failed": "Match analysis did not complete: {error}.",
     },
 }
 
@@ -952,7 +958,8 @@ async def _do_match_vacancy(
         return
     sent = await update.message.reply_text(_t("processing", lang))
     try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        match_request_timeout = float(os.getenv("MATCH_REQUEST_TIMEOUT", "360.0"))
+        async with httpx.AsyncClient(timeout=match_request_timeout) as client:
             r = await client.post(
                 f"{base_url}/match-vacancy",
                 json={
@@ -962,6 +969,17 @@ async def _do_match_vacancy(
                     "target_lang": lang if lang in ("ru", "en") else "en",
                 },
             )
+    except httpx.TimeoutException:
+        logger.warning("Match API timeout")
+        try:
+            await context.bot.edit_message_text(
+                chat_id=sent.chat_id,
+                message_id=sent.message_id,
+                text=_t("match_timeout", lang),
+            )
+        except Exception as ed:
+            logger.warning("edit_message_text after match timeout failed: %s", ed)
+        return
     except Exception as e:
         logger.exception("Match API error: %s", e)
         try:
@@ -1015,12 +1033,16 @@ async def _do_match_vacancy(
     item = data[0]
     score = item.get("relevance_score", 0)
     summary = item.get("summary")
+    error = item.get("error")
     snippets = item.get("matched_snippets") or []
     lines = [_t("relevance", lang, score=score)]
+    if error:
+        lines.append("")
+        lines.append(_t("match_summary_failed", lang, error=error))
     if summary and summary.strip():
         lines.append("")
         lines.append(summary.strip())
-    else:
+    if not summary and not error:
         for i, s in enumerate(snippets[:5], 1):
             t = str(s)
             lines.append(f"\n[{i}] {t[:300]}{'...' if len(t) > 300 else ''}")
@@ -1214,10 +1236,11 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 )
             await update.message.reply_text(_t("convert_done", lang))
         else:
+            msg = _t("convert_timeout", lang) if (result.error and "timeout" in (result.error or "").lower()) else _t("convert_failed", lang) + (f" ({result.error})" if result.error else "")
             await context.bot.edit_message_text(
                 chat_id=sent.chat_id,
                 message_id=sent.message_id,
-                text=_t("convert_failed", lang) + (f" ({result.error})" if result.error else ""),
+                text=msg,
             )
         return
 

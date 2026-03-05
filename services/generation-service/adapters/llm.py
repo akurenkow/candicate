@@ -11,6 +11,7 @@ class GenerateParams:
     temperature: float = 0.7
     model: str | None = None
     system_prompt: str | None = None
+    max_tokens: int | None = None
 
 
 class LLMAdapter(Protocol):
@@ -46,12 +47,13 @@ class ProviderLLMAdapter:
         messages.append({"role": "user", "content": params.prompt})
         provider = self._get_provider()
         # Run async provider from sync context (FastAPI runs sync routes in threadpool)
+        max_tokens = params.max_tokens if params.max_tokens is not None else self._max_tokens
         return _run_async(
             provider.chat(
                 messages,
                 model=params.model,
                 temperature=params.temperature,
-                max_tokens=self._max_tokens,
+                max_tokens=max_tokens,
             )
         )
 
