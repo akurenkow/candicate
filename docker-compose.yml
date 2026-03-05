@@ -359,8 +359,8 @@ services:
       EMBEDDING_SERVICE_URL: http://embedding-service:8000
       AUTHZ_SERVICE_URL: http://authz-service:8000
 
-      # Match summary: лимит вывода на один чанк (токены), таймаут на один вызов генерации (сек)
-      GENERATE_MAX_CHUNK: ${GENERATE_MAX_CHUNK:-1000}
+      # Match summary: лимит вывода на один чанк (токены); 2000 чтобы не обрезать «Сильные/Слабые стороны»
+      GENERATE_MAX_CHUNK: ${GENERATE_MAX_CHUNK:-2000}
       GENERATION_CHUNK_TIMEOUT: ${GENERATION_CHUNK_TIMEOUT:-120}
 
       # Параметры RAG
