@@ -544,7 +544,7 @@ async def resume_convert(req: ResumeConvertRequest):
 async def users_restart_notify(source: str = "telegram", pool: asyncpg.Pool = Depends(get_pool)):
     async with pool.acquire() as conn:
         users = await get_users_for_restart_notify(conn, source)
-    return [{"external_id": uid, "last_restart_message_id": mid} for uid, mid in users]
+    return [{"external_id": uid, "last_restart_message_id": mid, "language": lang} for uid, mid, lang in users]
 
 
 @app.post("/users/restart-notify/store")

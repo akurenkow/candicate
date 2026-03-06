@@ -7,6 +7,7 @@ import argparse
 import html
 import json
 import os
+import platform
 import re
 import subprocess
 import tempfile
@@ -23,9 +24,17 @@ REQUEST_TIMEOUT = int(os.getenv("DEEPSEEK_TIMEOUT", "180"))
 MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", "8000"))
 
 
+def command_exists(name: str) -> bool:
+    from shutil import which
+    return which(name) is not None
+
+
 def run_cmd(cmd: List[str], timeout: int = 120) -> Tuple[int, str, str]:
-    p = subprocess.run(cmd, capture_output=True, timeout=timeout)
-    return p.returncode, p.stdout.decode("utf-8", "ignore"), p.stderr.decode("utf-8", "ignore")
+    try:
+        p = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        return p.returncode, p.stdout.decode("utf-8", "ignore"), p.stderr.decode("utf-8", "ignore")
+    except FileNotFoundError:
+        return 127, "", f"Command not found: {cmd[0]}"
 
 
 def normalize_whitespace(text: str) -> str:
@@ -90,17 +99,58 @@ def cleanup_unrtf_output(text: str) -> str:
     return normalize_whitespace("\n".join(lines))
 
 
-def extract_text_from_rtf(path: Path) -> str:
-    rc, out, err = run_cmd(["unrtf", "--text", str(path)])
-    if rc == 0 and out.strip():
-        return cleanup_unrtf_output(out)
+def rtf_hex_to_text(raw: str) -> str:
+    def repl(match):
+        try:
+            return bytes.fromhex(match.group(1)).decode("cp1251", "ignore")
+        except Exception:
+            return ""
+    return re.sub(r"\\'([0-9a-fA-F]{2})", repl, raw)
 
+
+def extract_text_from_rtf_fallback(path: Path) -> str:
     raw = read_text_bytes(path).decode("latin-1", "ignore")
+    raw = rtf_hex_to_text(raw)
     raw = re.sub(r"\\par[d]? ?", "\n", raw)
-    raw = re.sub(r"\\'[0-9a-fA-F]{2}", "", raw)
+    raw = re.sub(r"\\line ?", "\n", raw)
+    raw = re.sub(r"\\tab ?", "\t", raw)
+    raw = re.sub(r"\\u-?\d+\??", " ", raw)
     raw = re.sub(r"\\[a-zA-Z]+\d* ?", "", raw)
     raw = raw.replace("{", "").replace("}", "")
     return normalize_whitespace(raw)
+
+
+def extract_text_from_rtf(path: Path) -> str:
+    if command_exists("unrtf"):
+        rc, out, err = run_cmd(["unrtf", "--text", str(path)])
+        if rc == 0 and out.strip():
+            return cleanup_unrtf_output(out)
+    return extract_text_from_rtf_fallback(path)
+
+
+def extract_text_from_doc_windows_com(path: Path) -> str:
+    if platform.system() != "Windows":
+        return ""
+
+    ps_script = rf"""
+$ErrorActionPreference = 'Stop'
+$word = $null
+$doc = $null
+try {{
+  $word = New-Object -ComObject Word.Application
+  $word.Visible = $false
+  $doc = $word.Documents.Open('{str(path).replace("'", "''")}')
+  $text = $doc.Content.Text
+  Write-Output $text
+}} finally {{
+  if ($doc -ne $null) {{ $doc.Close([ref]0) }}
+  if ($word -ne $null) {{ $word.Quit() }}
+}}
+"""
+    rc, out, err = run_cmd(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script], timeout=180)
+    if rc == 0 and out.strip():
+        return normalize_whitespace(out)
+    return ""
 
 
 def extract_text_from_doc(path: Path) -> str:
@@ -108,32 +158,42 @@ def extract_text_from_doc(path: Path) -> str:
     if looks_like_rtf(raw):
         return extract_text_from_rtf(path)
 
-    rc, out, err = run_cmd(["antiword", str(path)])
-    if rc == 0 and out.strip():
-        return normalize_whitespace(out)
+    if command_exists("antiword"):
+        rc, out, err = run_cmd(["antiword", str(path)])
+        if rc == 0 and out.strip():
+            return normalize_whitespace(out)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        rc, out, err = run_cmd([
-            "soffice", "--headless", "--convert-to", "txt:Text",
-            "--outdir", tmp, str(path)
-        ], timeout=180)
-        txt_path = Path(tmp) / (path.stem + ".txt")
-        if txt_path.exists():
-            return extract_text_from_txt(txt_path)
+    text = extract_text_from_doc_windows_com(path)
+    if text:
+        return text
 
-    raise RuntimeError(f"Не удалось извлечь текст из DOC: {path.name}")
+    if command_exists("soffice"):
+        with tempfile.TemporaryDirectory() as tmp:
+            rc, out, err = run_cmd([
+                "soffice", "--headless", "--convert-to", "txt:Text",
+                "--outdir", tmp, str(path)
+            ], timeout=180)
+            txt_path = Path(tmp) / (path.stem + ".txt")
+            if txt_path.exists():
+                return extract_text_from_txt(txt_path)
+
+    raise RuntimeError(
+        "Не удалось извлечь текст из DOC. На Windows нужен один из вариантов: "
+        "установленный Microsoft Word, LibreOffice (soffice) или antiword."
+    )
 
 
 def extract_text_from_docx(path: Path) -> str:
-    with tempfile.TemporaryDirectory() as tmp:
-        rc, out, err = run_cmd([
-            "soffice", "--headless", "--convert-to", "txt:Text",
-            "--outdir", tmp, str(path)
-        ], timeout=180)
-        txt_path = Path(tmp) / (path.stem + ".txt")
-        if txt_path.exists():
-            return extract_text_from_txt(txt_path)
-    raise RuntimeError(f"Failed to extract text from DOCX: {path.name}")
+    if command_exists("soffice"):
+        with tempfile.TemporaryDirectory() as tmp:
+            rc, out, err = run_cmd([
+                "soffice", "--headless", "--convert-to", "txt:Text",
+                "--outdir", tmp, str(path)
+            ], timeout=180)
+            txt_path = Path(tmp) / (path.stem + ".txt")
+            if txt_path.exists():
+                return extract_text_from_txt(txt_path)
+    raise RuntimeError("Failed to extract text from DOCX: install LibreOffice or convert DOCX to TXT/PDF first.")
 
 
 def html_to_text(value: str) -> str:
@@ -279,9 +339,7 @@ def call_deepseek(messages: List[Dict[str, str]], api_key: str, json_mode: bool 
     r.raise_for_status()
     body = r.json()
     content = body["choices"][0]["message"]["content"]
-    if content is None:
-        return ""
-    return content
+    return content or ""
 
 
 def build_extraction_prompt(source_text: str, lang: str) -> List[Dict[str, str]]:

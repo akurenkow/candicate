@@ -1589,9 +1589,6 @@ async def _send_restart_notices(app: Application) -> None:
         return
     bot = app.bot
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    msg_ru = _t("restart_notice", "ru", timestamp=ts)
-    msg_en = _t("restart_notice", "en", timestamp=ts)
-    text = f"{msg_ru}\n\n{msg_en}"
     try:
         r = await _ui_get(f"/users/restart-notify?source={SOURCE_TELEGRAM}")
     except Exception as e:
@@ -1603,6 +1600,10 @@ async def _send_restart_notices(app: Application) -> None:
     for u in users:
         external_id = u.get("external_id")
         last_msg_id = u.get("last_restart_message_id")
+        lang = (u.get("language") or "en").strip().lower()
+        if lang != "ru":
+            lang = "en"
+        text = _t("restart_notice", lang, timestamp=ts)
         try:
             chat_id = int(external_id)
         except (ValueError, TypeError):
