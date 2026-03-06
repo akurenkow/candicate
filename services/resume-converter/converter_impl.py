@@ -485,6 +485,37 @@ def parse_experience_section(section: str) -> List[Dict[str, Any]]:
     return companies
 
 
+# Patterns for the block after "Опыт работы — ..." until the next major section (HH.ru export variants).
+_EXP_END_PATTERNS = [
+    r"\n\nОбразование\n",
+    r"\n\nОбразование и курсы\n",
+    r"\n\nЗнание языков\n",
+    r"\n\nНавыки\n",
+    r"\n\nОбо мне\n",
+    r"\n\nМои ключевые навыки и достижения",
+    r"\n\nДополнительная информация",
+]
+
+
+def _extract_experience_block(text: str) -> str:
+    """Extract experience section from HH.ru resume text. Tries multiple end markers."""
+    prefix = r"Опыт работы\s*[—-]\s*[^\n]+\n"
+    for end in _EXP_END_PATTERNS:
+        block = first_match(prefix + r"(.*?)" + end, text, re.S)
+        if block:
+            return block
+    # Fallback: take from "Опыт работы —" until next line that looks like a section header.
+    m = re.search(prefix + r"(.*)", text, re.S)
+    if m:
+        raw = m.group(1)
+        for end_marker in ("Образование", "Знание языков", "Навыки", "Обо мне", "Мои ключевые навыки", "Дополнительная информация"):
+            idx = raw.find("\n\n" + end_marker)
+            if idx != -1:
+                return raw[:idx].strip()
+        return raw.strip()
+    return ""
+
+
 def parse_hh_resume(text: str) -> Dict[str, Any]:
     data = blank_schema()
     lines = as_nonempty_lines(text)
@@ -548,7 +579,7 @@ def parse_hh_resume(text: str) -> Dict[str, Any]:
     key_skills_block = first_match(r"Мои ключевые навыки и достижения:\n(.*)$", text, re.S)
     a["key_skills"] = [x.lstrip("-").strip() for x in as_nonempty_lines(key_skills_block)]
 
-    exp_block = first_match(r"Опыт работы\s*[—-]\s*[^\n]+\n(.*?)\n\nОбразование\n", text, re.S)
+    exp_block = _extract_experience_block(text)
     data["experience"] = parse_experience_section(exp_block)
     return data
 

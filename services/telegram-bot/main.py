@@ -22,6 +22,7 @@ from telegram import (
     ReplyKeyboardMarkup,
     Update,
 )
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -131,7 +132,7 @@ TEXTS = {
         "vacancy_extract_failed": "Не удалось извлечь текст из файла. Убедитесь, что PDF содержит слой текста (не скан). /help",
         "file_too_large_1mb": "Маловато будет? Нет. Великовато. Макс. 1 МБ.",
         "download_failed": "Не удалось загрузить файл.",
-        "only_txt": "Только .txt.",
+        "only_txt": "Принимаю на эмбеддинг только .txt. Для обновления профиля Кандидита загрузите резюме в формате .txt (макс. 1 МБ). /help",
         "service_error": "Я не упал, шеф, — меня уронили... (service_error) /help",
         "request_error": "Я не упал, шеф, — меня уронили... (request_error) /help",
         "response_error": "Я не упал, шеф, — меня уронили... (response_error) /help",
@@ -1715,9 +1716,18 @@ def main() -> None:
         ui_url or "(empty)",
     )
     bot = _TrackingBot(token=token)
+    read_timeout = float(os.getenv("TELEGRAM_READ_TIMEOUT", "60.0"))
+    write_timeout = float(os.getenv("TELEGRAM_WRITE_TIMEOUT", "30.0"))
+    connect_timeout = float(os.getenv("TELEGRAM_CONNECT_TIMEOUT", "10.0"))
+    request = HTTPXRequest(
+        read_timeout=read_timeout,
+        write_timeout=write_timeout,
+        connect_timeout=connect_timeout,
+    )
     app = (
         Application.builder()
         .bot(bot)
+        .request(request)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
         .build()
