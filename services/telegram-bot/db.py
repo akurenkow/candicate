@@ -46,18 +46,27 @@ async def create_pool() -> asyncpg.Pool:
 async def get_user_by_telegram_id(conn: asyncpg.Connection, telegram_id: str) -> asyncpg.Record | dict | None:
     try:
         row = await conn.fetchrow(
-            "SELECT id, telegram_id, role, is_active, source, language, mode, dialog_owner_id, pending_state FROM users WHERE telegram_id = $1",
+            "SELECT id, telegram_id, role, is_active, source, language, mode, dialog_owner_id, pending_state, last_restart_message_id FROM users WHERE telegram_id = $1",
             str(telegram_id),
         )
         return row
     except UndefinedColumnError:
-        row = await conn.fetchrow(
-            "SELECT id, telegram_id, role, is_active, source, language, mode, dialog_owner_id FROM users WHERE telegram_id = $1",
-            str(telegram_id),
-        )
-        if row is None:
-            return None
-        return {**dict(row), "pending_state": None}
+        try:
+            row = await conn.fetchrow(
+                "SELECT id, telegram_id, role, is_active, source, language, mode, dialog_owner_id, pending_state FROM users WHERE telegram_id = $1",
+                str(telegram_id),
+            )
+            if row is None:
+                return None
+            return {**dict(row), "last_restart_message_id": None}
+        except UndefinedColumnError:
+            row = await conn.fetchrow(
+                "SELECT id, telegram_id, role, is_active, source, language, mode, dialog_owner_id FROM users WHERE telegram_id = $1",
+                str(telegram_id),
+            )
+            if row is None:
+                return None
+            return {**dict(row), "pending_state": None, "last_restart_message_id": None}
 
 
 async def set_pending_state(conn: asyncpg.Connection, telegram_id: str, state: str | None) -> int:
@@ -198,3 +207,30 @@ async def link_hash(
             hash_id,
         )
     return True, f"Связан с кандидатом {owner_id}. / Linked to candidate {owner_id}.", owner_id
+
+
+async def get_users_for_restart_notify(conn: asyncpg.Connection) -> list[tuple[str, int | None]]:
+    """Return list of (telegram_id, last_restart_message_id or None) for all users with telegram_id."""
+    try:
+        rows = await conn.fetch(
+            "SELECT telegram_id, last_restart_message_id FROM users WHERE telegram_id IS NOT NULL"
+        )
+    except UndefinedColumnError:
+        rows = await conn.fetch(
+            "SELECT telegram_id FROM users WHERE telegram_id IS NOT NULL"
+        )
+        return [(str(r["telegram_id"]), None) for r in rows]
+    return [(str(r["telegram_id"]), r["last_restart_message_id"]) for r in rows]
+
+
+async def set_last_restart_message_id(conn: asyncpg.Connection, telegram_id: str, message_id: int) -> int:
+    """Store last sent restart notice message_id for user. Returns number of rows updated."""
+    try:
+        r = await conn.execute(
+            "UPDATE users SET last_restart_message_id = $1 WHERE telegram_id = $2",
+            message_id,
+            str(telegram_id),
+        )
+        return int(r.split()[-1])
+    except UndefinedColumnError:
+        return 0

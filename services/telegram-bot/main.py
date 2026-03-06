@@ -7,10 +7,9 @@ import logging
 import os
 import re
 import uuid
+from datetime import datetime, timezone
 from enum import Enum
 
-import asyncpg
-from asyncpg.exceptions import UniqueViolationError
 import httpx
 from telegram import (
     BotCommand,
@@ -39,20 +38,6 @@ from resume_convert import (
     MAX_RESUME_CONVERT_BYTES,
     extract_resume_text,
     is_resume_convert_file,
-    structure_resume_via_api,
-)
-from db import (
-    create_pool,
-    create_user,
-    generate_hash_token,
-    get_chunk_count_by_document_id,
-    get_user_by_telegram_id,
-    insert_hash,
-    link_hash,
-    set_pending_state,
-    update_language,
-    update_mode,
-    update_role,
 )
 
 logging.basicConfig(
@@ -60,6 +45,22 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+SOURCE_TELEGRAM = "telegram"
+
+
+def _ui_client_url() -> str:
+    return os.getenv("UI_CLIENT_URL", "").rstrip("/")
+
+
+async def _ui_get(path: str, timeout: float = 10.0) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        return await client.get(_ui_client_url() + path)
+
+
+async def _ui_post(path: str, json: dict | None = None, data: dict | None = None, files: dict | None = None, timeout: float = 30.0) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        return await client.post(_ui_client_url() + path, json=json, data=data, files=files)
 
 
 # ru/en localization (UI only); default language if not set: en
@@ -144,6 +145,7 @@ TEXTS = {
         "match_summary_failed": "Анализ вакансии не завершён: {error}.",
         "long_message_use_letter": "Сообщение слишком длинное для чата. Используйте команду /letter для генерации сопроводительного письма по вакансии.",
         "long_message_use_match": "Сообщение слишком длинное для чата. Используйте команду /match сопоставления резюме кандидата с описанием вакансии.",
+        "restart_notice": "🔄 Сервис был перезагружен {timestamp}. Повторите отправку сообщения или команды, если ожидаете ответа.",
     },
     "en": {
         "update_resume": "Update resume",
@@ -225,6 +227,7 @@ TEXTS = {
         "match_summary_failed": "Match analysis did not complete: {error}.",
         "long_message_use_letter": "Message too long for chat. Use /letter to generate a cover letter for the vacancy.",
         "long_message_use_match": "Message too long for chat. Use /match to run vacancy match.",
+        "restart_notice": "🔄 Service was restarted at {timestamp}. Please resend your message or command if you are waiting for a response.",
     },
 }
 
@@ -400,15 +403,11 @@ POLL_MAX_ATTEMPTS = 90  # ~3 min
 MESSAGE_POLL_MAX_ATTEMPTS = 45  # ~1.5 min for RAG
 
 
-async def _poll_message_and_get_answer(
-    base_url: str,
-    message_id: str,
-) -> str:
+async def _poll_message_and_get_answer(message_id: str) -> str:
     for _ in range(MESSAGE_POLL_MAX_ATTEMPTS):
         await asyncio.sleep(POLL_INTERVAL_SEC)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                r = await client.get(f"{base_url}/messages/{message_id}")
+            r = await _ui_get(f"/messages/{message_id}")
         except Exception as e:
             logger.warning("Poll message status failed: %s", e)
             continue
@@ -433,13 +432,12 @@ async def _poll_message_and_get_answer(
 
 async def _poll_and_edit_chat_response(
     bot,
-    base_url: str,
     message_id: str,
     chat_id: int,
     msg_id: int,
     lang: str,
 ) -> None:
-    answer = await _poll_message_and_get_answer(base_url, message_id)
+    answer = await _poll_message_and_get_answer(message_id)
     if answer.strip() in NO_DOCUMENTS_STUB_CM_VARIANTS:
         answer = _t("no_documents_stub", lang)
     try:
@@ -459,26 +457,43 @@ async def _process_chat_message(
     text: str,
     lang: str,
 ) -> None:
-    """Send user message to chat API, show processing, then poll and edit with response. Uses lang for UI strings."""
-    pool: asyncpg.Pool = context.bot_data["pool"]
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-    if user is None:
-        async with pool.acquire() as conn:
-            await create_user(conn, str(tid))
-            if str(tid) in _get_allowed_upload_user_ids():
-                await update_role(conn, str(tid), "candidate")
-        _set_state(tid, BotState.WAITING_HASH)
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=_t("choose_language", "en"),
-            reply_markup=_lang_keyboard(),
-        )
-        if text.strip():
-            _pending_message[tid] = text.strip()
+    if not _ui_client_url():
+        await context.bot.send_message(chat_id=chat_id, text=_bot_error_message("service_error", lang))
         return
+    try:
+        r = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception as e:
+        logger.exception("ui-client users/me error: %s", e)
+        await context.bot.send_message(chat_id=chat_id, text=_bot_error_message("service_error", lang))
+        return
+    if r.status_code == 404:
+        try:
+            start_r = await _ui_post("/users/start", json={"external_id": str(tid), "source": SOURCE_TELEGRAM})
+        except Exception as e:
+            logger.exception("ui-client users/start error: %s", e)
+            await context.bot.send_message(chat_id=chat_id, text=_bot_error_message("service_error", lang))
+            return
+        if start_r.status_code != 200:
+            await context.bot.send_message(chat_id=chat_id, text=_bot_error_message("service_error", lang))
+            return
+        body = start_r.json()
+        if body.get("need_language"):
+            _set_state(tid, BotState.WAITING_HASH)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=_t("choose_language", "en"),
+                reply_markup=_lang_keyboard(),
+            )
+            if text.strip():
+                _pending_message[tid] = text.strip()
+            return
+    else:
+        if r.status_code != 200:
+            await context.bot.send_message(chat_id=chat_id, text=_bot_error_message("service_error", lang))
+            return
+        user = r.json()
     role = user.get("role")
-    mode = str(user.get("mode")) if user.get("mode") else None
+    mode = str(user.get("mode") or "")
     owner_id: str | None = None
     if _is_candidate_eligible(role, mode):
         owner_id = str(tid)
@@ -489,27 +504,18 @@ async def _process_chat_message(
             return
     if not owner_id:
         return
-    base_url = os.getenv("BASE_API_URL", "").rstrip("/")
-    if not base_url:
-        await context.bot.send_message(chat_id=chat_id, text=_bot_error_message("service_error", lang))
-        return
     sent = await context.bot.send_message(chat_id=chat_id, text=_t("processing", lang))
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                f"{base_url}/chat",
-                params={"owner_id": owner_id},
-                json={"message": text},
-            )
+        r = await _ui_post("/chat", json={"owner_id": owner_id, "message": text})
     except Exception as e:
-        logger.exception("Chat API error: %s", e)
+        logger.exception("ui-client chat error: %s", e)
         await context.bot.edit_message_text(
             chat_id=chat_id,
             message_id=sent.message_id,
             text=_bot_error_message("request_error", lang),
         )
         return
-    if r.status_code != 202:
+    if r.status_code != 200:
         err = _t("error_generic", lang)
         try:
             d = r.json().get("detail", r.text) if r.text else ""
@@ -520,7 +526,7 @@ async def _process_chat_message(
         except Exception:
             pass
         trace_id = _new_trace_id()
-        logger.warning("bot_error chat non-202 trace_id=%s detail=%.200s", trace_id, err)
+        logger.warning("bot_error chat non-200 trace_id=%s detail=%.200s", trace_id, err)
         await context.bot.edit_message_text(
             chat_id=chat_id,
             message_id=sent.message_id,
@@ -539,7 +545,6 @@ async def _process_chat_message(
     asyncio.create_task(
         _poll_and_edit_chat_response(
             context.bot,
-            base_url,
             msg_id,
             sent.chat_id,
             sent.message_id,
@@ -550,18 +555,15 @@ async def _process_chat_message(
 
 async def _poll_job_and_edit_message(
     bot,
-    base_url: str,
     job_id: str,
     chat_id: int,
     message_id: int,
-    pool: asyncpg.Pool,
     lang: str,
 ) -> None:
     for _ in range(POLL_MAX_ATTEMPTS):
         await asyncio.sleep(POLL_INTERVAL_SEC)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                r = await client.get(f"{base_url}/documents/tasks/{job_id}/status")
+            r = await _ui_get(f"/documents/tasks/{job_id}")
         except Exception as e:
             logger.warning("Poll task status failed: %s", e)
             continue
@@ -570,14 +572,7 @@ async def _poll_job_and_edit_message(
         data = r.json()
         status = data.get("status", "")
         if status == "completed":
-            doc_id = data.get("document_id")
-            n = 0
-            if doc_id:
-                try:
-                    async with pool.acquire() as conn:
-                        n = await get_chunk_count_by_document_id(conn, doc_id)
-                except Exception as e:
-                    logger.warning("get_chunk_count failed: %s", e)
+            n = data.get("chunk_count", 0)
             text = _t("resume_indexed", lang, n=n)
             try:
                 await bot.edit_message_text(
@@ -616,13 +611,6 @@ def _set_state(telegram_id: int, state: BotState) -> None:
     _user_states[telegram_id] = state
 
 
-def _get_allowed_upload_user_ids() -> frozenset[str]:
-    raw = os.getenv("ALLOWED_UPLOAD_USER_IDS", "").strip()
-    if not raw:
-        return frozenset()
-    return frozenset(s.strip() for s in raw.split(",") if s.strip())
-
-
 def _is_candidate_eligible(role, mode) -> bool:
     if role == "candidate":
         return True
@@ -652,35 +640,38 @@ def _lang_keyboard() -> InlineKeyboardMarkup:
 
 
 async def _ensure_started(update: Update, context: ContextTypes.DEFAULT_TYPE, pending_text: str | None = None) -> bool:
-    """If user is UNREGISTERED: new user → show language choice and store pending_text (return False); existing user (e.g. after restart) → set ACTIVE (return True). Returns True if handler should continue processing the message."""
     if not update.message or not update.message.from_user:
         return True
     tid = update.message.from_user.id
     if _get_state(tid) != BotState.UNREGISTERED:
         return True
-    pool: asyncpg.Pool = context.bot_data["pool"]
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-    if user is None:
-        try:
-            async with pool.acquire() as conn:
-                await create_user(conn, str(tid))
-                if str(tid) in _get_allowed_upload_user_ids():
-                    await update_role(conn, str(tid), "candidate")
-        except UniqueViolationError:
-            async with pool.acquire() as conn:
-                user = await get_user_by_telegram_id(conn, str(tid))
-            _set_state(tid, BotState.ACTIVE)
-            return True
-        if _get_state(tid) == BotState.UNREGISTERED:
-            _set_state(tid, BotState.WAITING_HASH)
-            if pending_text and pending_text.strip():
-                _pending_message[tid] = pending_text.strip()
-            await update.message.reply_text(
-                _t("choose_language", "en"),
-                reply_markup=_lang_keyboard(),
-            )
-            return False
+    if not _ui_client_url():
+        return True
+    try:
+        r = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception:
+        return True
+    if r.status_code == 200:
+        _set_state(tid, BotState.ACTIVE)
+        return True
+    if r.status_code != 404:
+        return True
+    try:
+        start_r = await _ui_post("/users/start", json={"external_id": str(tid), "source": SOURCE_TELEGRAM})
+    except Exception:
+        return True
+    if start_r.status_code != 200:
+        return True
+    body = start_r.json()
+    if body.get("need_language"):
+        _set_state(tid, BotState.WAITING_HASH)
+        if pending_text and pending_text.strip():
+            _pending_message[tid] = pending_text.strip()
+        await update.message.reply_text(
+            _t("choose_language", "en"),
+            reply_markup=_lang_keyboard(),
+        )
+        return False
     _set_state(tid, BotState.ACTIVE)
     return True
 
@@ -689,33 +680,33 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
-    pool: asyncpg.Pool = context.bot_data["pool"]
-
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-
-    if user is None:
-        async with pool.acquire() as conn:
-            await create_user(conn, str(tid))
-            if str(tid) in _get_allowed_upload_user_ids():
-                await update_role(conn, str(tid), "candidate")
+    if not _ui_client_url():
+        await update.message.reply_text(_bot_error_message("service_error", "en"))
+        return
+    try:
+        r = await _ui_post("/users/start", json={"external_id": str(tid), "source": SOURCE_TELEGRAM})
+    except Exception as e:
+        logger.exception("ui-client start error: %s", e)
+        await update.message.reply_text(_bot_error_message("service_error", "en"))
+        return
+    if r.status_code != 200:
+        await update.message.reply_text(_bot_error_message("service_error", "en"))
+        return
+    body = r.json()
+    if body.get("need_language"):
         _set_state(tid, BotState.WAITING_HASH)
         await update.message.reply_text(
             _t("choose_language", "en"),
             reply_markup=_lang_keyboard(),
         )
         return
-
-    allowed = _get_allowed_upload_user_ids()
-    role = user.get("role")
-    if str(tid) in allowed and role != "candidate":
-        async with pool.acquire() as conn:
-            await update_role(conn, str(tid), "candidate")
-        role = "candidate"
+    user = body.get("user") or {}
     _set_state(tid, BotState.ACTIVE)
     lang = str(user.get("language") or "en")
-    kbd = _menu_keyboard(role, str(user.get("mode") or ""), lang, user.get("dialog_owner_id"))
-    menu = _t("menu_mode_admin", lang, mode=str(user.get("mode") or "candidate")) if role == "admin" else _t("menu_ready", lang)
+    role = user.get("role")
+    mode = str(user.get("mode") or "")
+    kbd = _menu_keyboard(role, mode, lang, user.get("dialog_owner_id"))
+    menu = _t("menu_mode_admin", lang, mode=mode) if role == "admin" else _t("menu_ready", lang)
     await update.message.reply_text(menu, reply_markup=kbd)
 
 
@@ -726,34 +717,34 @@ async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await query.answer()
     lang = query.data.split(":")[1]
     tid = query.from_user.id if query.from_user else 0
-    pool: asyncpg.Pool = context.bot_data["pool"]
-
-    async with pool.acquire() as conn:
-        n = await update_language(conn, str(tid), lang)
-        user = await get_user_by_telegram_id(conn, str(tid)) if n > 0 else None
-
-    if n > 0:
-        _set_state(tid, BotState.ACTIVE)
-        await query.edit_message_text(_t("language_updated", lang))
-        role = user.get("role") if user else None
-        mode = str(user.get("mode") or "") if user else ""
-        kbd = _menu_keyboard(role, mode, lang, user.get("dialog_owner_id") if user else None)
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text=_t("menu_ready", lang),
-            reply_markup=kbd,
-        )
-        pending = _pending_message.pop(tid, None)
-        if pending:
-            await _process_chat_message(
-                context,
-                query.message.chat_id,
-                tid,
-                pending,
-                lang,
-            )
-    else:
+    try:
+        r = await _ui_post("/users/language", json={"external_id": str(tid), "source": SOURCE_TELEGRAM, "language": lang})
+    except Exception as e:
+        logger.exception("ui-client language error: %s", e)
         await query.edit_message_text(_bot_error_message("error_generic", "en"))
+        return
+    if r.status_code != 200:
+        await query.edit_message_text(_bot_error_message("error_generic", "en"))
+        return
+    body = r.json()
+    user = (body.get("user") or body.get("menu")) or {}
+    _set_state(tid, BotState.ACTIVE)
+    await query.edit_message_text(_t("language_updated", lang))
+    kbd = _menu_keyboard(user.get("role"), str(user.get("mode") or ""), lang, user.get("dialog_owner_id"))
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=_t("menu_ready", lang),
+        reply_markup=kbd,
+    )
+    pending = _pending_message.pop(tid, None)
+    if pending:
+        await _process_chat_message(
+            context,
+            query.message.chat_id,
+            tid,
+            pending,
+            lang,
+        )
 
 
 async def _do_link(
@@ -766,13 +757,20 @@ async def _do_link(
     tid = update.message.from_user.id
     if not await _ensure_started(update, context):
         return
-    pool: asyncpg.Pool = context.bot_data["pool"]
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-    if user is None:
+    try:
+        r = await _ui_post("/users/link", json={"external_id": str(tid), "source": SOURCE_TELEGRAM, "token": hash_value})
+    except Exception as e:
+        logger.exception("ui-client link error: %s", e)
+        await update.message.reply_text(_bot_error_message("error_generic", "en"))
         return
-    async with pool.acquire() as conn:
-        ok, msg, owner_id = await link_hash(conn, str(tid), hash_value)
+    if r.status_code != 200:
+        await update.message.reply_text(_bot_error_message("error_generic", "en"))
+        return
+    body = r.json()
+    ok = body.get("ok", False)
+    msg = body.get("message", "")
+    owner_id = body.get("owner_id")
+    user = body.get("user") or {}
     sent = await update.message.reply_text(msg)
     if ok and sent:
         try:
@@ -782,33 +780,42 @@ async def _do_link(
             )
         except Exception:
             pass
-        async with pool.acquire() as conn:
-            user = await get_user_by_telegram_id(conn, str(tid))
-        if user:
-            lang = str(user.get("language") or "en")
-            role = user.get("role")
-            mode = str(user.get("mode") or "")
-            kbd = _menu_keyboard(role, mode, lang, owner_id)
-            await update.message.reply_text(_t("menu_ready", lang), reply_markup=kbd)
+        lang = str(user.get("language") or "en")
+        kbd = _menu_keyboard(user.get("role"), str(user.get("mode") or ""), lang, owner_id)
+        await update.message.reply_text(_t("menu_ready", lang), reply_markup=kbd)
 
 
 async def switch_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Toggle mode between candidate/hr. Admin only."""
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
-    pool: asyncpg.Pool = context.bot_data["pool"]
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-    if user is None or user.get("role") != "admin":
-        await update.message.reply_text(_t("access_denied", str(user.get("language") or "en") if user else "en"))
+    try:
+        r = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception as e:
+        logger.exception("ui-client me error: %s", e)
+        await update.message.reply_text(_t("access_denied", "en"))
         return
-    cur = str(user.get("mode") or "candidate")
-    new_mode = "hr" if cur == "candidate" else "candidate"
-    async with pool.acquire() as conn:
-        await update_mode(conn, str(tid), new_mode)
-    lang = str(user.get("language") or "en")
-    kbd = _menu_keyboard("admin", new_mode, lang, user.get("dialog_owner_id") if new_mode == "hr" else None)
+    if r.status_code != 200:
+        await update.message.reply_text(_t("access_denied", "en"))
+        return
+    user = r.json()
+    if user.get("role") != "admin":
+        await update.message.reply_text(_t("access_denied", str(user.get("language") or "en")))
+        return
+    try:
+        sw = await _ui_post(f"/users/switch-mode?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception as e:
+        logger.exception("ui-client switch-mode error: %s", e)
+        await update.message.reply_text(_t("access_denied", "en"))
+        return
+    if sw.status_code != 200:
+        await update.message.reply_text(_t("access_denied", str(user.get("language") or "en")))
+        return
+    body = sw.json()
+    new_mode = body.get("mode", "candidate")
+    u = body.get("user") or user
+    lang = str(u.get("language") or "en")
+    kbd = _menu_keyboard("admin", new_mode, lang, u.get("dialog_owner_id") if new_mode == "hr" else None)
     await update.message.reply_text(_t("mode_switched", lang, mode=new_mode), reply_markup=kbd)
 
 
@@ -816,9 +823,11 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
-    pool: asyncpg.Pool = context.bot_data["pool"]
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
+    try:
+        r = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception:
+        r = None
+    user = r.json() if r and r.status_code == 200 else None
     lang = str(user.get("language") or "en") if user else "en"
     role = user.get("role") if user else None
     mode = str(user.get("mode") or "") if user else ""
@@ -838,7 +847,6 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Link HR to candidate via hash. /link [hash]"""
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
@@ -846,43 +854,41 @@ async def link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not args:
         _set_state(tid, BotState.WAITING_LINK_TOKEN)
         lang = "en"
-        pool = context.bot_data["pool"]
-        async with pool.acquire() as conn:
-            u = await get_user_by_telegram_id(conn, str(tid))
-            if u:
-                lang = str(u.get("language") or "en")
+        try:
+            r = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+            if r.status_code == 200:
+                lang = str(r.json().get("language") or "en")
+        except Exception:
+            pass
         await update.message.reply_text(_t("enter_candidate_token", lang))
         return
     await _do_link(update, context, args[0])
 
 
 async def hash_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Generate hash for candidate. Only candidate or admin in candidate mode. Block recruiters."""
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
     if not await _ensure_started(update, context):
         return
-    pool: asyncpg.Pool = context.bot_data["pool"]
-
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-
-    if user is None:
+    try:
+        r = await _ui_post(f"/hash/generate?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception as e:
+        logger.exception("ui-client hash/generate error: %s", e)
+        await update.message.reply_text(_bot_error_message("service_error", "en"))
         return
-
-    role = user.get("role")
-    mode = user.get("mode")
-    if not _is_candidate_eligible(role, str(mode) if mode else None):
-        await update.message.reply_text(_t("candidates_only", str(user.get("language") or "en")))
+    if r.status_code == 403:
+        try:
+            u = (await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")).json()
+            lang = str(u.get("language") or "en")
+        except Exception:
+            lang = "en"
+        await update.message.reply_text(_t("candidates_only", lang))
         return
-
-    token = generate_hash_token()
-    owner_id = str(tid)
-
-    async with pool.acquire() as conn:
-        await insert_hash(conn, owner_id, token)
-
+    if r.status_code != 200:
+        await update.message.reply_text(_bot_error_message("service_error", "en"))
+        return
+    token = r.json().get("token", "")
     await update.message.reply_text(f"<code>{token}</code>", parse_mode="HTML")
 
 
@@ -892,49 +898,42 @@ async def lang_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     tid = update.message.from_user.id
     args = (context.args or [])
     if not args or args[0] not in ("ru", "en"):
-        await update.message.reply_text(
-            _t("lang_usage", "en"),
-        )
+        await update.message.reply_text(_t("lang_usage", "en"))
         return
     lang = args[0]
-    pool: asyncpg.Pool = context.bot_data["pool"]
-
-    user = None
-    async with pool.acquire() as conn:
-        n = await update_language(conn, str(tid), lang)
-        if n > 0:
-            user = await get_user_by_telegram_id(conn, str(tid))
-
-    if n > 0:
-        kbd = _menu_keyboard(
-            user.get("role") if user else None,
-            str(user.get("mode") or "") if user else "",
-            lang,
-            user.get("dialog_owner_id") if user else None,
-        )
-        text = "Язык обновлён." if lang == "ru" else "Language updated."
-        await update.message.reply_text(text, reply_markup=kbd)
-    else:
+    try:
+        r = await _ui_post("/users/language", json={"external_id": str(tid), "source": SOURCE_TELEGRAM, "language": lang})
+    except Exception as e:
+        logger.exception("ui-client language error: %s", e)
         await update.message.reply_text(_t("user_not_found", "en"))
+        return
+    if r.status_code != 200:
+        await update.message.reply_text(_t("user_not_found", "en"))
+        return
+    body = r.json()
+    user = body.get("user") or body.get("menu") or {}
+    kbd = _menu_keyboard(user.get("role"), str(user.get("mode") or ""), lang, user.get("dialog_owner_id"))
+    text = "Язык обновлён." if lang == "ru" else "Language updated."
+    await update.message.reply_text(text, reply_markup=kbd)
 
 
 async def match_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Match candidate (dialog_owner_id) to vacancy. Recruiter only. Use /link first."""
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
     if not await _ensure_started(update, context):
         return
-    pool: asyncpg.Pool = context.bot_data["pool"]
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-    if user is None:
+    try:
+        r = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception:
         return
-    if not _is_hr_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
+    if r.status_code != 200:
+        return
+    user = r.json()
+    if not _is_hr_eligible(user.get("role"), str(user.get("mode") or "")):
         await update.message.reply_text(_t("recruiters_only", str(user.get("language") or "en")))
         return
-    dialog_owner_id = user.get("dialog_owner_id")
-    if not dialog_owner_id:
+    if not user.get("dialog_owner_id"):
         await update.message.reply_text(_t("use_link_first", str(user.get("language") or "en")))
         return
     _set_state(tid, BotState.WAITING_VACANCY_TEXT)
@@ -942,39 +941,43 @@ async def match_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def cover_letter_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Ask candidate to send vacancy description (file or text) to generate Executive Summary."""
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
     if not await _ensure_started(update, context):
         return
-    pool: asyncpg.Pool = context.bot_data["pool"]
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-    if user is None:
+    try:
+        r = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception:
         return
-    if not _is_candidate_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
+    if r.status_code != 200:
+        return
+    user = r.json()
+    if not _is_candidate_eligible(user.get("role"), str(user.get("mode") or "")):
         await update.message.reply_text(_t("candidates_only", str(user.get("language") or "en")))
         return
     _set_state(tid, BotState.WAITING_COVER_LETTER_VACANCY)
-    async with pool.acquire() as conn:
-        await set_pending_state(conn, str(tid), BotState.WAITING_COVER_LETTER_VACANCY.value)
+    try:
+        await _ui_post(f"/users/set-pending-state?external_id={tid}&source={SOURCE_TELEGRAM}&state={BotState.WAITING_COVER_LETTER_VACANCY.value}")
+    except Exception:
+        pass
     await update.message.reply_text(_t("send_cover_letter_vacancy", str(user.get("language") or "en")))
 
 
 async def convert_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Ask candidate to send resume file (doc/rtf/pdf/txt) for conversion to internal format."""
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
     if not await _ensure_started(update, context):
         return
-    pool: asyncpg.Pool = context.bot_data["pool"]
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-    if user is None:
+    try:
+        r = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception:
         return
-    if not _is_candidate_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
+    if r.status_code != 200:
+        return
+    user = r.json()
+    if not _is_candidate_eligible(user.get("role"), str(user.get("mode") or "")):
         await update.message.reply_text(_t("candidates_only", str(user.get("language") or "en")))
         return
     _set_state(tid, BotState.WAITING_RESUME_TO_CONVERT)
@@ -982,26 +985,21 @@ async def convert_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def update_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Ask candidate to upload .txt resume."""
     if not update.message or not update.message.from_user:
         return
     tid = update.message.from_user.id
     if not await _ensure_started(update, context):
         return
-    pool: asyncpg.Pool = context.bot_data["pool"]
-
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-
-    if user is None:
+    try:
+        r = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception:
         return
-
-    role = user.get("role")
-    mode = user.get("mode")
-    if not _is_candidate_eligible(role, str(mode) if mode else None):
+    if r.status_code != 200:
+        return
+    user = r.json()
+    if not _is_candidate_eligible(user.get("role"), str(user.get("mode") or "")):
         await update.message.reply_text(_t("candidates_only", str(user.get("language") or "en")))
         return
-
     _set_state(tid, BotState.RESUME_PENDING)
     await update.message.reply_text(_t("upload_resume_txt", str(user.get("language") or "en")))
 
@@ -1009,141 +1007,74 @@ async def update_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def _do_match_vacancy(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-    pool: asyncpg.Pool,
     vacancy_text: str,
 ) -> None:
     tid = update.message.from_user.id
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-    if user is None or not _is_hr_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
+    try:
+        r = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception:
+        return
+    if r.status_code != 200:
+        return
+    user = r.json()
+    if not _is_hr_eligible(user.get("role"), str(user.get("mode") or "")):
         return
     lang = str(user.get("language") or "en")
-    dialog_owner_id = user.get("dialog_owner_id")
-    if not dialog_owner_id:
+    if not user.get("dialog_owner_id"):
         await update.message.reply_text(_t("link_lost", lang))
         return
-    base_url = os.getenv("BASE_API_URL", "").rstrip("/")
-    if not base_url:
+    if not _ui_client_url():
         await update.message.reply_text(_bot_error_message("service_error", lang))
         return
     sent = await update.message.reply_text(_t("processing", lang))
     try:
-        match_request_timeout = float(os.getenv("MATCH_REQUEST_TIMEOUT", "360.0"))
-        async with httpx.AsyncClient(timeout=match_request_timeout) as client:
-            r = await client.post(
-                f"{base_url}/match-vacancy",
-                json={
-                    "owner_id": str(dialog_owner_id),
-                    "vacancy_text": vacancy_text,
-                    "summary": True,
-                    "target_lang": lang if lang in ("ru", "en") else "en",
-                },
-            )
+        match_r = await _ui_post("/match", json={"external_id": str(tid), "source": SOURCE_TELEGRAM, "vacancy_text": vacancy_text}, timeout=float(os.getenv("MATCH_REQUEST_TIMEOUT", "360.0")))
     except httpx.TimeoutException:
         logger.warning("Match API timeout")
         try:
-            await context.bot.edit_message_text(
-                chat_id=sent.chat_id,
-                message_id=sent.message_id,
-                text=_t("match_timeout", lang),
-            )
+            await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=_t("match_timeout", lang))
         except Exception as ed:
             logger.warning("edit_message_text after match timeout failed: %s", ed)
         return
     except Exception as e:
         logger.exception("Match API error: %s", e)
         try:
-            await context.bot.edit_message_text(
-                chat_id=sent.chat_id,
-                message_id=sent.message_id,
-                text=_bot_error_message("request_error", lang),
-            )
+            await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=_bot_error_message("request_error", lang))
         except Exception as ed:
             logger.warning("edit_message_text after match error failed: %s", ed)
         return
-    if r.status_code != 200:
+    if match_r.status_code != 200:
         trace_id = _new_trace_id()
-        err: str
+        err = _t("error_generic", lang)
         try:
-            body = r.text or ""
-            if not body.strip():
-                err = _t("error_generic", lang)
-            else:
-                data = r.json()
-                if not isinstance(data, dict):
-                    err = body[:400] if len(body) > 400 else body
-                else:
-                    d = data.get("detail", body)
-                    d = d[0] if isinstance(d, list) and d else d
-                    err = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
-        except Exception as parse_exc:
-            err = _t("error_generic", lang)
-            body_preview = (r.text or "")[:500].replace("\n", " ")
-            logger.warning(
-                "bot_error match_vacancy non-200 trace_id=%s status=%s parse_err=%s body_preview=%.300s",
-                trace_id, r.status_code, parse_exc, body_preview,
-            )
-        else:
-            logger.warning("bot_error match_vacancy non-200 trace_id=%s status=%s detail=%.200s", trace_id, r.status_code, err)
+            d = match_r.json().get("detail", match_r.text)
+            d = d[0] if isinstance(d, list) and d else d
+            err = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
+        except Exception:
+            pass
+        logger.warning("bot_error match_vacancy non-200 trace_id=%s", trace_id)
         try:
-            await context.bot.edit_message_text(
-                chat_id=sent.chat_id,
-                message_id=sent.message_id,
-                text=str(err)[:500] + f" trace_id={trace_id}",
-            )
+            await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=str(err)[:500] + f" trace_id={trace_id}")
         except Exception as ed:
             logger.warning("edit_message_text after match non-200 failed: %s", ed)
         return
-    data = r.json()
-    if not isinstance(data, list):
+    data = match_r.json()
+    if data.get("no_results"):
         try:
-            await context.bot.edit_message_text(
-                chat_id=sent.chat_id,
-                message_id=sent.message_id,
-                text=_bot_error_message("invalid_response", lang),
-            )
+            await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=_t("no_results", lang))
         except Exception as ed:
-            logger.warning("edit_message_text after match invalid_response failed: %s", ed)
+            logger.warning("edit_message_text failed: %s", ed)
         return
-    if not data:
+    parts = data.get("parts") or []
+    if not parts:
         try:
-            await context.bot.edit_message_text(
-                chat_id=sent.chat_id,
-                message_id=sent.message_id,
-                text=_t("no_results", lang),
-            )
-        except Exception as ed:
-            logger.warning("edit_message_text after match no_results failed: %s", ed)
+            await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=_bot_error_message("invalid_response", lang))
+        except Exception:
+            pass
         return
-    item = data[0]
-    score = item.get("relevance_score", 0)
-    summary = item.get("summary")
-    error = item.get("error")
-    snippets = item.get("matched_snippets") or []
-    lines = [_t("relevance", lang, score=score)]
-    if error:
-        lines.append("")
-        lines.append(_t("match_summary_failed", lang, error=error))
-    if summary and summary.strip():
-        lines.append("")
-        lines.append(summary.strip())
-    if not summary and not error:
-        for i, s in enumerate(snippets[:5], 1):
-            t = str(s)
-            lines.append(f"\n[{i}] {t[:300]}{'...' if len(t) > 300 else ''}")
-    full_reply_text = "\n".join(lines) if lines else "OK"
-    message_parts = (
-        [full_reply_text]
-        if len(full_reply_text) <= MAX_VACANCY_TEXT_CHARS
-        else _split_match_reply_by_sections(full_reply_text, MAX_VACANCY_TEXT_CHARS)
-    )
     try:
-        await context.bot.edit_message_text(
-            chat_id=sent.chat_id,
-            message_id=sent.message_id,
-            text=message_parts[0],
-        )
-        for part in message_parts[1:]:
+        await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=parts[0])
+        for part in parts[1:]:
             await context.bot.send_message(chat_id=sent.chat_id, text=part)
     except Exception as e:
         logger.warning("match result send failed: %s", e)
@@ -1152,26 +1083,23 @@ async def _do_match_vacancy(
 async def _do_cover_letter(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-    pool: asyncpg.Pool,
     vacancy_text: str,
 ) -> None:
     tid = update.message.from_user.id
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-    if user is None:
+    try:
+        u = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception:
         return
+    if u.status_code != 200:
+        return
+    user = u.json()
     lang = str(user.get("language") or "en")
-    base_url = os.getenv("BASE_API_URL", "").rstrip("/")
-    if not base_url:
+    if not _ui_client_url():
         await update.message.reply_text(_bot_error_message("service_error", lang))
         return
     await update.message.reply_text(_t("processing", lang))
     try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            r = await client.post(
-                f"{base_url}/cover-letter",
-                json={"owner_id": str(tid), "vacancy_text": vacancy_text.strip()},
-            )
+        r = await _ui_post("/cover-letter", json={"external_id": str(tid), "source": SOURCE_TELEGRAM, "vacancy_text": vacancy_text.strip()}, timeout=90.0)
     except Exception as e:
         logger.exception("Cover letter API error: %s", e)
         await update.message.reply_text(_bot_error_message("request_error", lang))
@@ -1212,12 +1140,13 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     doc = update.message.document
     state = _get_state(tid)
-    pool: asyncpg.Pool = context.bot_data["pool"]
-
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-    if user is None:
+    try:
+        ur = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+    except Exception:
         return
+    if ur.status_code != 200:
+        return
+    user = ur.json()
 
     lang = str(user.get("language") or "en")
     filename = doc.file_name or ""
@@ -1247,9 +1176,11 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await update.message.reply_text(_t("vacancy_extract_failed", lang))
             return
         _set_state(tid, BotState.ACTIVE)
-        async with pool.acquire() as conn:
-            await set_pending_state(conn, str(tid), None)
-        await _do_cover_letter(update, context, pool, vacancy_text.strip())
+        try:
+            await _ui_post(f"/users/set-pending-state?external_id={tid}&source={SOURCE_TELEGRAM}")
+        except Exception:
+            pass
+        await _do_cover_letter(update, context, vacancy_text.strip())
         return
 
     hr_with_dialog = _is_hr_eligible(
@@ -1275,7 +1206,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await update.message.reply_text(_t("vacancy_extract_failed", lang))
             return
         _set_state(tid, BotState.ACTIVE)
-        await _do_match_vacancy(update, context, pool, vacancy_text.strip())
+        await _do_match_vacancy(update, context, vacancy_text.strip())
         return
 
     if not candidate_eligible:
@@ -1302,38 +1233,42 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             _set_state(tid, BotState.ACTIVE)
             await update.message.reply_text(_t("convert_extract_failed", lang))
             return
-        base_url = os.getenv("BASE_API_URL", "").rstrip("/")
-        if not base_url:
+        if not _ui_client_url():
             _set_state(tid, BotState.ACTIVE)
             await update.message.reply_text(_bot_error_message("service_error", lang))
             return
         sent = await update.message.reply_text(_t("convert_processing", lang))
-        result = await structure_resume_via_api(base_url, raw_text.strip())
+        try:
+            conv_r = await _ui_post("/resume/convert", json={"raw_text": raw_text.strip()}, timeout=600.0)
+        except Exception as e:
+            logger.exception("resume/convert error: %s", e)
+            _set_state(tid, BotState.ACTIVE)
+            await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=_t("convert_failed", lang))
+            return
         _set_state(tid, BotState.ACTIVE)
-        if result.success:
+        if conv_r.status_code != 200:
+            await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=_t("convert_failed", lang))
+            return
+        result = conv_r.json()
+        if result.get("success") and result.get("structured_text"):
             try:
                 await context.bot.delete_message(chat_id=sent.chat_id, message_id=sent.message_id)
             except Exception:
                 pass
             name = (doc.file_name or "resume").rsplit(".", 1)[0]
             out_name = f"{name}_resume.txt"
-            if len(result.structured_text) <= 4096:
-                await update.message.reply_text(result.structured_text)
+            st = result["structured_text"]
+            if len(st) <= 4096:
+                await update.message.reply_text(st)
             else:
                 await update.message.reply_document(
-                    document=InputFile(
-                        result.structured_text.encode("utf-8"),
-                        filename=out_name,
-                    ),
+                    document=InputFile(st.encode("utf-8"), filename=out_name),
                 )
             await update.message.reply_text(_t("convert_done", lang))
         else:
-            msg = _t("convert_timeout", lang) if (result.error and "timeout" in (result.error or "").lower()) else _t("convert_failed", lang) + (f" ({result.error})" if result.error else "")
-            await context.bot.edit_message_text(
-                chat_id=sent.chat_id,
-                message_id=sent.message_id,
-                text=msg,
-            )
+            err = result.get("error") or ""
+            msg = _t("convert_timeout", lang) if "timeout" in err.lower() else _t("convert_failed", lang) + (f" ({err})" if err else "")
+            await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=msg)
         return
 
     filename = doc.file_name or "resume.txt"
@@ -1347,11 +1282,9 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(_t("file_too_large_1mb", lang))
         return
 
-    base_url = os.getenv("BASE_API_URL", "").rstrip("/")
-    if not base_url:
+    if not _ui_client_url():
         _set_state(tid, BotState.ACTIVE)
         await update.message.reply_text(_bot_error_message("service_error", lang))
-        logger.error("BASE_API_URL not set")
         return
 
     try:
@@ -1368,40 +1301,46 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(_t("file_too_large_1mb", lang))
         return
 
-    owner_id = str(tid)
-    files = {"file": (filename, io.BytesIO(bytes(raw)), "text/plain")}
-    data = {"owner_id": owner_id}
-
+    sent = await update.message.reply_text(_t("processing", lang))
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                f"{base_url}/documents/upload",
-                files=files,
-                data=data,
-            )
+        r = await _ui_post(
+            "/documents/upload",
+            data={"external_id": str(tid), "source": SOURCE_TELEGRAM},
+            files={"file": (filename, io.BytesIO(bytes(raw)), "text/plain")},
+        )
     except Exception as e:
         logger.exception("Resume upload API error: %s", e)
         _set_state(tid, BotState.ACTIVE)
-        await update.message.reply_text(_bot_error_message("upload_error", lang))
+        try:
+            await context.bot.edit_message_text(
+                chat_id=sent.chat_id,
+                message_id=sent.message_id,
+                text=_bot_error_message("upload_error", lang),
+            )
+        except Exception:
+            await update.message.reply_text(_bot_error_message("upload_error", lang))
         return
 
     _set_state(tid, BotState.ACTIVE)
 
-    if r.status_code == 202:
+    if r.status_code == 200:
         body = r.json()
         job_id = body.get("job_id", "")
-        sent = await update.message.reply_text(
-            _t("resume_accepted", lang, job_id=job_id),
-        )
+        try:
+            await context.bot.edit_message_text(
+                chat_id=sent.chat_id,
+                message_id=sent.message_id,
+                text=_t("resume_accepted", lang, job_id=job_id),
+            )
+        except Exception:
+            sent = await update.message.reply_text(_t("resume_accepted", lang, job_id=job_id))
         if sent:
             asyncio.create_task(
                 _poll_job_and_edit_message(
                     context.bot,
-                    base_url,
                     job_id,
                     chat_id=sent.chat_id,
                     message_id=sent.message_id,
-                    pool=pool,
                     lang=lang,
                 )
             )
@@ -1412,7 +1351,14 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             d = r.text or "Unknown error"
         d = d[0] if isinstance(d, list) and d else d
         d = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
-        await update.message.reply_text(_bot_error_message("upload_failed", lang, detail=d))
+        try:
+            await context.bot.edit_message_text(
+                chat_id=sent.chat_id,
+                message_id=sent.message_id,
+                text=_bot_error_message("upload_failed", lang, detail=d),
+            )
+        except Exception:
+            await update.message.reply_text(_bot_error_message("upload_failed", lang, detail=d))
 
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1423,12 +1369,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not await _ensure_started(update, context, pending_text=text):
         return
     state = _get_state(tid)
-    pool = context.bot_data["pool"]
-    async with pool.acquire() as conn:
-        user = await get_user_by_telegram_id(conn, str(tid))
-    # Restore WAITING_COVER_LETTER_VACANCY after restart (state persisted in DB)
+    user = None
+    try:
+        ur = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+        if ur.status_code == 200:
+            user = ur.json()
+    except Exception:
+        pass
     effective_state = state
-    if state == BotState.ACTIVE and user and _is_candidate_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None) and user.get("pending_state") == BotState.WAITING_COVER_LETTER_VACANCY.value:
+    if state == BotState.ACTIVE and user and _is_candidate_eligible(user.get("role"), str(user.get("mode") or "")) and user.get("pending_state") == BotState.WAITING_COVER_LETTER_VACANCY.value:
         effective_state = BotState.WAITING_COVER_LETTER_VACANCY
 
     if effective_state == BotState.WAITING_LINK_TOKEN:
@@ -1436,10 +1385,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await _do_link(update, context, text)
         return
     if effective_state == BotState.WAITING_COVER_LETTER_VACANCY:
-        if user is None or not _is_candidate_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
+        if user is None or not _is_candidate_eligible(user.get("role"), str(user.get("mode") or "")):
             _set_state(tid, BotState.ACTIVE)
-            async with pool.acquire() as conn:
-                await set_pending_state(conn, str(tid), None)
+            try:
+                await _ui_post(f"/users/set-pending-state?external_id={tid}&source={SOURCE_TELEGRAM}")
+            except Exception:
+                pass
             await update.message.reply_text(_bot_error_message("error_generic", str(user.get("language") or "en") if user else "en"))
             return
         lang = str(user.get("language") or "en")
@@ -1447,21 +1398,24 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text(_t("description_too_long", lang))
             return
         _set_state(tid, BotState.ACTIVE)
-        async with pool.acquire() as conn:
-            await set_pending_state(conn, str(tid), None)
-        await _do_cover_letter(update, context, pool, text)
+        try:
+            await _ui_post(f"/users/set-pending-state?external_id={tid}&source={SOURCE_TELEGRAM}")
+        except Exception:
+            pass
+        await _do_cover_letter(update, context, text)
         return
     if state == BotState.WAITING_VACANCY_TEXT:
-        pool = context.bot_data["pool"]
-        async with pool.acquire() as conn:
-            user = await get_user_by_telegram_id(conn, str(tid))
-        if user is None or not _is_hr_eligible(user.get("role"), str(user.get("mode")) if user.get("mode") else None):
+        try:
+            ur = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+        except Exception:
+            ur = None
+        user = ur.json() if ur and ur.status_code == 200 else None
+        if user is None or not _is_hr_eligible(user.get("role"), str(user.get("mode") or "")):
             _set_state(tid, BotState.ACTIVE)
             await update.message.reply_text(_bot_error_message("error_generic", str(user.get("language") or "en") if user else "en"))
             return
         lang = str(user.get("language") or "en")
-        dialog_owner_id = user.get("dialog_owner_id")
-        if not dialog_owner_id:
+        if not user.get("dialog_owner_id"):
             _set_state(tid, BotState.ACTIVE)
             await update.message.reply_text(_t("link_lost", lang))
             return
@@ -1469,16 +1423,18 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text(_t("description_too_long", lang))
             return
         _set_state(tid, BotState.ACTIVE)
-        await _do_match_vacancy(update, context, pool, text)
+        await _do_match_vacancy(update, context, text)
         return
     if state == BotState.ACTIVE and _looks_like_token(text):
         await _do_link(update, context, text)
         return
 
     if state == BotState.ACTIVE and text and text in BTN_TO_ACTION:
-        pool = context.bot_data["pool"]
-        async with pool.acquire() as conn:
-            user = await get_user_by_telegram_id(conn, str(tid))
+        try:
+            ur = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+        except Exception:
+            ur = None
+        user = ur.json() if ur and ur.status_code == 200 else None
         role = user.get("role") if user else None
         mode = str(user.get("mode") or "") if user else ""
         action = BTN_TO_ACTION.get(text)
@@ -1517,9 +1473,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if state == BotState.WAITING_HASH:
         t = text.lower()
         if t in ("ru", "en"):
-            pool: asyncpg.Pool = context.bot_data["pool"]
-            async with pool.acquire() as conn:
-                await update_language(conn, str(tid), t)
+            try:
+                await _ui_post("/users/language", json={"external_id": str(tid), "source": SOURCE_TELEGRAM, "language": t})
+            except Exception:
+                pass
             await update.message.reply_text(_t("language_chosen_waiting_hash", t))
         else:
             await update.message.reply_text(
@@ -1529,9 +1486,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     if state == BotState.ACTIVE and text:
-        pool = context.bot_data["pool"]
-        async with pool.acquire() as conn:
-            user = await get_user_by_telegram_id(conn, str(tid))
+        try:
+            ur = await _ui_get(f"/users/me?external_id={tid}&source={SOURCE_TELEGRAM}")
+        except Exception:
+            ur = None
+        user = ur.json() if ur and ur.status_code == 200 else None
         if user is not None:
             lang = str(user.get("language") or "en")
             if len(text) > MAX_CHAT_MESSAGE_CHARS:
@@ -1578,9 +1537,48 @@ async def ping_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text("pong")
 
 
+async def _send_restart_notices(app: Application) -> None:
+    if not _ui_client_url():
+        return
+    bot = app.bot
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    msg_ru = _t("restart_notice", "ru", timestamp=ts)
+    msg_en = _t("restart_notice", "en", timestamp=ts)
+    text = f"{msg_ru}\n\n{msg_en}"
+    try:
+        r = await _ui_get(f"/users/restart-notify?source={SOURCE_TELEGRAM}")
+    except Exception as e:
+        logger.warning("Restart notify list failed: %s", e)
+        return
+    if r.status_code != 200:
+        return
+    users = r.json()
+    for u in users:
+        external_id = u.get("external_id")
+        last_msg_id = u.get("last_restart_message_id")
+        try:
+            chat_id = int(external_id)
+        except (ValueError, TypeError):
+            continue
+        if last_msg_id is not None:
+            try:
+                await bot.edit_message_text(chat_id=chat_id, message_id=last_msg_id, text=text)
+                continue
+            except Exception as e:
+                logger.debug("Restart notice edit failed for %s (msg %s): %s", external_id, last_msg_id, e)
+        try:
+            sent = await bot.send_message(chat_id=chat_id, text=text)
+            if sent and sent.message_id:
+                try:
+                    await _ui_post("/users/restart-notify/store", json={"external_id": external_id, "source": SOURCE_TELEGRAM, "message_id": sent.message_id})
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning("Restart notice send failed for %s: %s", external_id, e)
+
+
 async def post_init(app: Application) -> None:
-    pool = await create_pool()
-    app.bot_data["pool"] = pool
+    await _send_restart_notices(app)
     cmds_en = [
         BotCommand("start", TEXTS["en"]["cmd_start"]),
         BotCommand("help", TEXTS["en"]["cmd_help"]),
@@ -1610,19 +1608,17 @@ async def post_init(app: Application) -> None:
 
 
 async def post_shutdown(app: Application) -> None:
-    pool: asyncpg.Pool | None = app.bot_data.get("pool")
-    if pool:
-        await pool.close()
+    pass
 
 
 def main() -> None:
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is required")
-    base_api_url = os.getenv("BASE_API_URL", "")
+    ui_url = os.getenv("UI_CLIENT_URL", "")
     logger.info(
-        "Starting telegram-bot: BASE_API_URL=%s",
-        base_api_url or "(empty)",
+        "Starting telegram-bot (thin client): UI_CLIENT_URL=%s",
+        ui_url or "(empty)",
     )
     app = (
         Application.builder()

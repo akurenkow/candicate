@@ -1,4 +1,4 @@
-"""Unit tests for telegram-bot: edge cases and basic use-cases."""
+"""Unit tests for telegram-bot (thin client): edge cases and basic use-cases. Mocks _ui_get/_ui_post."""
 
 import os
 import sys
@@ -21,7 +21,6 @@ from main import (
     TEXTS,
     _do_link,
     _do_match_vacancy,
-    _get_allowed_upload_user_ids,
     _get_state,
     _is_candidate_eligible,
     _is_hr_eligible,
@@ -48,6 +47,13 @@ from main import (
 import main as main_mod
 
 
+def _mock_ui_response(status_code: int = 200, json_dict: dict | list | None = None):
+    m = MagicMock()
+    m.status_code = status_code
+    m.json.return_value = json_dict if json_dict is not None else {}
+    return m
+
+
 def _text_matches_key(reply_text: str, key: str, lang: str | None = None) -> bool:
     """True if reply_text equals TEXTS value for key (single lang or any lang)."""
     if lang:
@@ -68,9 +74,9 @@ def _make_update_message(tid: int = 12345, text: str = "", chat_id: int = 1, ent
     return u
 
 
-def _make_context(pool_mock):
+def _make_context(pool_mock=None):
     ctx = MagicMock()
-    ctx.bot_data = {"pool": pool_mock}
+    ctx.bot_data = {}
     ctx.bot = MagicMock()
     ctx.args = []
     return ctx
@@ -333,11 +339,6 @@ def test_get_allowed_upload_single():
         assert _get_allowed_upload_user_ids() == frozenset({"111"})
 
 
-def test_get_allowed_upload_multiple():
-    with patch.dict(os.environ, {"ALLOWED_UPLOAD_USER_IDS": "111, 222 , 333"}, clear=False):
-        assert _get_allowed_upload_user_ids() == frozenset({"111", "222", "333"})
-
-
 # --- Handlers (with mocks) ---
 
 
@@ -357,9 +358,8 @@ def pool_mock():
 async def test_start_handler_no_message():
     u = MagicMock()
     u.message = None
-    ctx = _make_context(AsyncMock())
+    ctx = _make_context()
     await start_handler(u, ctx)
-    ctx.bot_data["pool"].acquire.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -376,11 +376,9 @@ async def test_start_handler_new_user_shows_lang(pool_mock):
     u = _make_update_message(tid=77771)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value=None)):
-        with patch.object(main_mod, "create_user", AsyncMock()):
-            with patch.object(main_mod, "update_role", AsyncMock()):
-                with patch.dict(os.environ, {"ALLOWED_UPLOAD_USER_IDS": ""}, clear=False):
-                    await start_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_post", AsyncMock(return_value=_mock_ui_response(200, {"need_language": True, "user": {}, "menu": None}))):
+            await start_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     call_args = u.message.reply_text.call_args
     assert _text_matches_key(call_args[0][0], "choose_language")
@@ -392,13 +390,9 @@ async def test_start_handler_existing_user_shows_menu(pool_mock):
     u = _make_update_message(tid=77772)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    user_row = {
-        "role": "candidate",
-        "language": "en",
-        "mode": None,
-    }
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value=user_row)):
-        with patch.dict(os.environ, {"ALLOWED_UPLOAD_USER_IDS": ""}, clear=False):
+    user_row = {"role": "candidate", "language": "en", "mode": None, "dialog_owner_id": None}
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_post", AsyncMock(return_value=_mock_ui_response(200, {"need_language": False, "user": user_row, "menu": user_row}))):
             await start_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "menu_ready", "en")
@@ -422,8 +416,9 @@ async def test_lang_handler_valid(pool_mock):
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
     ctx.args = ["ru"]
-    with patch.object(main_mod, "update_language", AsyncMock(return_value=1)):
-        with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
+    user = {"role": "candidate", "mode": None, "language": "ru", "dialog_owner_id": None}
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_post", AsyncMock(return_value=_mock_ui_response(200, {"user": user, "menu": user}))):
             await lang_handler(u, ctx)
     u.message.reply_text.assert_called_once()
 
@@ -443,8 +438,9 @@ async def test_lang_callback_valid(pool_mock):
     u.callback_query.edit_message_text = AsyncMock()
     ctx = _make_context(pool_mock)
     ctx.bot.send_message = AsyncMock()
-    with patch.object(main_mod, "update_language", AsyncMock(return_value=1)):
-        with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
+    user = {"role": "candidate", "mode": None, "language": "en", "dialog_owner_id": None}
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_post", AsyncMock(return_value=_mock_ui_response(200, {"user": user, "menu": user}))):
             await lang_callback(u, ctx)
     u.callback_query.answer.assert_called_once()
     u.callback_query.edit_message_text.assert_called_once()
@@ -458,8 +454,9 @@ async def test_help_handler_no_user(pool_mock):
     u = _make_update_message(tid=77776)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value=None)):
-        await help_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(404))):
+            await help_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "help_recruiter", "en")
 
@@ -469,8 +466,9 @@ async def test_hash_handler_unregistered(pool_mock):
     u = _make_update_message(tid=77777)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value=None)):
-        await hash_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(404))):
+            await hash_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert "start" in u.message.reply_text.call_args[0][0].lower()
 
@@ -480,10 +478,11 @@ async def test_hash_handler_recruiter_denied(pool_mock):
     u = _make_update_message(tid=77778)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None})):
-        await hash_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_post", AsyncMock(return_value=_mock_ui_response(403))):
+            await hash_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert _text_matches_key(u.message.reply_text.call_args[0][0], "access_denied", "en")
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "candidates_only", "en")
 
 
 @pytest.mark.asyncio
@@ -491,10 +490,9 @@ async def test_hash_handler_candidate_success(pool_mock):
     u = _make_update_message(tid=77779)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
-        with patch.object(main_mod, "insert_hash", AsyncMock()):
-            with patch.object(main_mod, "generate_hash_token", return_value="abcd" * 8):
-                await hash_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_post", AsyncMock(return_value=_mock_ui_response(200, {"token": "abcd" * 8}))):
+            await hash_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert "abcd" in u.message.reply_text.call_args[0][0]
 
@@ -505,8 +503,9 @@ async def test_link_handler_no_args_enters_waiting(pool_mock):
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
     ctx.args = []
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None})):
-        await link_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "recruiter", "mode": None, "language": "en"}))):
+            await link_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "enter_candidate_token", "en")
     assert _get_state(77780) == BotState.WAITING_LINK_TOKEN
@@ -519,10 +518,10 @@ async def test_link_handler_unregistered(pool_mock):
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
     ctx.args = ["token12345678901234567890"]
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value=None)):
-        await _do_link(u, ctx, "token12345678901234567890")
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_post", AsyncMock(return_value=_mock_ui_response(200, {"ok": False, "message": "Invalid hash"}))):
+            await _do_link(u, ctx, "token12345678901234567890")
     u.message.reply_text.assert_called_once()
-    assert _text_matches_key(u.message.reply_text.call_args[0][0], "choose_language", "en")
 
 
 @pytest.mark.asyncio
@@ -530,8 +529,10 @@ async def test_switch_handler_non_admin(pool_mock):
     u = _make_update_message(tid=77782)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
-        await switch_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "candidate", "mode": None, "language": "en"}))):
+            with patch.object(main_mod, "_ui_post", AsyncMock(return_value=_mock_ui_response(403))):
+                await switch_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "access_denied", "en")
 
@@ -541,9 +542,10 @@ async def test_switch_handler_admin_toggles(pool_mock):
     u = _make_update_message(tid=77783)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "admin", "mode": "candidate", "language": "en"})):
-        with patch.object(main_mod, "update_mode", AsyncMock(return_value=1)):
-            await switch_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "admin", "mode": "candidate", "language": "en"}))):
+            with patch.object(main_mod, "_ui_post", AsyncMock(return_value=_mock_ui_response(200, {"ok": True, "mode": "hr", "user": {"role": "admin", "mode": "hr", "language": "en", "dialog_owner_id": None}}))):
+                await switch_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert u.message.reply_text.call_args[0][0] == _t("mode_switched", "en", mode="hr")
 
@@ -553,10 +555,11 @@ async def test_update_handler_recruiter_denied(pool_mock):
     u = _make_update_message(tid=77784)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None})):
-        await update_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "recruiter", "mode": None, "language": "en"}))):
+            await update_handler(u, ctx)
     u.message.reply_text.assert_called_once()
-    assert _text_matches_key(u.message.reply_text.call_args[0][0], "access_denied", "en")
+    assert _text_matches_key(u.message.reply_text.call_args[0][0], "candidates_only", "en")
 
 
 @pytest.mark.asyncio
@@ -564,8 +567,9 @@ async def test_update_handler_candidate_asks_upload(pool_mock):
     u = _make_update_message(tid=77785)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
-        await update_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "candidate", "mode": None, "language": "en"}))):
+            await update_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "upload_resume_txt", "en")
     assert _get_state(77785) == BotState.RESUME_PENDING
@@ -577,8 +581,9 @@ async def test_match_handler_recruiter_no_link(pool_mock):
     u = _make_update_message(tid=77786)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": None})):
-        await match_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "recruiter", "mode": None, "dialog_owner_id": None, "language": "en"}))):
+            await match_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "use_link_first", "en")
 
@@ -588,8 +593,9 @@ async def test_match_handler_candidate_denied(pool_mock):
     u = _make_update_message(tid=77787)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
-        await match_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "candidate", "mode": None, "language": "en"}))):
+            await match_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "recruiters_only", "en")
 
@@ -599,8 +605,9 @@ async def test_match_handler_recruiter_with_link_enters_waiting(pool_mock):
     u = _make_update_message(tid=77788)
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "owner123"})):
-        await match_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "recruiter", "mode": None, "dialog_owner_id": "owner123", "language": "en"}))):
+            await match_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _get_state(77788) == BotState.WAITING_VACANCY_TEXT
     main_mod._user_states.pop(77788, None)
@@ -629,8 +636,9 @@ async def test_document_handler_candidate_wrong_ext(pool_mock):
     ctx.bot.get_file = AsyncMock()
     ctx.bot.get_file.return_value.download_as_bytearray = AsyncMock(return_value=bytearray(b"x"))
     _set_state(77790, BotState.RESUME_PENDING)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
-        await document_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "candidate", "mode": None, "language": "en"}))):
+            await document_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "only_txt", "en")
     main_mod._user_states.pop(77790, None)
@@ -646,8 +654,9 @@ async def test_document_handler_candidate_file_too_large(pool_mock):
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
     _set_state(77791, BotState.RESUME_PENDING)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None})):
-        await document_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "candidate", "mode": None, "language": "en"}))):
+            await document_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "file_too_large_1mb", "en")
     main_mod._user_states.pop(77791, None)
@@ -659,8 +668,9 @@ async def test_message_handler_waiting_vacancy_too_long(pool_mock):
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
     _set_state(77792, BotState.WAITING_VACANCY_TEXT)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "o1"})):
-        await message_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "recruiter", "mode": None, "dialog_owner_id": "o1", "language": "en"}))):
+            await message_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "description_too_long", "en")
     main_mod._user_states.pop(77792, None)
@@ -672,7 +682,9 @@ async def test_message_handler_waiting_hash_invalid_lang(pool_mock):
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
     _set_state(77793, BotState.WAITING_HASH)
-    await message_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(404))):
+            await message_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "choose_lang_ru_en", "en")
     main_mod._user_states.pop(77793, None)
@@ -686,9 +698,10 @@ async def test_message_handler_recruiter_with_url_forwards_to_candidate(pool_moc
     ctx = _make_context(pool_mock)
     ctx.bot.forward_message = AsyncMock()
     _set_state(77795, BotState.ACTIVE)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "999888", "language": "en"})):
-        with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
-            await message_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "recruiter", "mode": None, "dialog_owner_id": "999888", "language": "en"}))):
+            with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
+                await message_handler(u, ctx)
     ctx.bot.forward_message.assert_called_once()
     call_kw = ctx.bot.forward_message.call_args[1]
     assert call_kw["chat_id"] == 999888
@@ -706,9 +719,10 @@ async def test_message_handler_recruiter_with_phone_replies_and_forwards(pool_mo
     ctx = _make_context(pool_mock)
     ctx.bot.forward_message = AsyncMock()
     _set_state(77796, BotState.ACTIVE)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "999777", "language": "ru"})):
-        with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
-            await message_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "recruiter", "mode": None, "dialog_owner_id": "999777", "language": "ru"}))):
+            with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
+                await message_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "phone_escalation_reply", "ru")
     ctx.bot.forward_message.assert_called_once()
@@ -726,9 +740,10 @@ async def test_message_handler_recruiter_with_url_regex_forwards(pool_mock):
     ctx = _make_context(pool_mock)
     ctx.bot.forward_message = AsyncMock()
     _set_state(77797, BotState.ACTIVE)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "888777", "language": "en"})):
-        with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
-            await message_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "recruiter", "mode": None, "dialog_owner_id": "888777", "language": "en"}))):
+            with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
+                await message_handler(u, ctx)
     ctx.bot.forward_message.assert_called_once()
     assert ctx.bot.forward_message.call_args[1]["chat_id"] == 888777
     main_mod._user_states.pop(77797, None)
@@ -741,10 +756,11 @@ async def test_message_handler_recruiter_plain_text_calls_process_chat(pool_mock
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
     _set_state(77798, BotState.ACTIVE)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "888666", "language": "en"})):
-        with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
-            with patch.object(main_mod, "_process_chat_message", AsyncMock()) as process_chat:
-                await message_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "recruiter", "mode": None, "dialog_owner_id": "888666", "language": "en"}))):
+            with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
+                with patch.object(main_mod, "_process_chat_message", AsyncMock()) as process_chat:
+                    await message_handler(u, ctx)
     process_chat.assert_called_once()
     main_mod._user_states.pop(77798, None)
 
@@ -758,9 +774,10 @@ async def test_message_handler_active_long_message_candidate_replies_use_letter(
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
     _set_state(77800, BotState.ACTIVE)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "candidate", "mode": None, "language": "en"})):
-        with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
-            await message_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "candidate", "mode": None, "language": "en"}))):
+            with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
+                await message_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "long_message_use_letter", "en")
     main_mod._user_states.pop(77800, None)
@@ -775,9 +792,10 @@ async def test_message_handler_active_long_message_hr_replies_use_match(pool_moc
     u.message.reply_text = AsyncMock()
     ctx = _make_context(pool_mock)
     _set_state(77801, BotState.ACTIVE)
-    with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "999888", "language": "ru"})):
-        with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
-            await message_handler(u, ctx)
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "recruiter", "mode": None, "dialog_owner_id": "999888", "language": "ru"}))):
+            with patch.object(main_mod, "_ensure_started", AsyncMock(return_value=True)):
+                await message_handler(u, ctx)
     u.message.reply_text.assert_called_once()
     assert _text_matches_key(u.message.reply_text.call_args[0][0], "long_message_use_match", "ru")
     main_mod._user_states.pop(77801, None)
@@ -800,16 +818,10 @@ async def test_do_match_vacancy_non200_json_detail_shows_msg(pool_mock):
     fake_response.text = '{"detail":[{"msg":"conversation-manager unavailable"}]}'
     fake_response.json.return_value = {"detail": [{"msg": "conversation-manager unavailable"}]}
 
-    with patch.dict(os.environ, {"BASE_API_URL": "http://test"}, clear=False):
-        with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "o1", "language": "en"})):
-            with patch("main.httpx.AsyncClient") as ac_mock:
-                client_inst = MagicMock()
-                client_inst.post = AsyncMock(return_value=fake_response)
-                ac_ctx = AsyncMock()
-                ac_ctx.__aenter__ = AsyncMock(return_value=client_inst)
-                ac_ctx.__aexit__ = AsyncMock(return_value=None)
-                ac_mock.return_value = ac_ctx
-                await _do_match_vacancy(u, ctx, pool_mock, "vacancy text")
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "recruiter", "mode": None, "dialog_owner_id": "o1", "language": "en"}))):
+            with patch.object(main_mod, "_ui_post", AsyncMock(return_value=fake_response)):
+                await _do_match_vacancy(u, ctx, "vacancy text")
     ctx.bot.edit_message_text.assert_called_once()
     edit_text = ctx.bot.edit_message_text.call_args[1]["text"]
     assert "conversation-manager unavailable" in edit_text
@@ -833,16 +845,10 @@ async def test_do_match_vacancy_non200_non_json_uses_fallback_and_trace_id(pool_
     fake_response.text = "<html>Gateway Error</html>"
     fake_response.json.side_effect = ValueError("not json")
 
-    with patch.dict(os.environ, {"BASE_API_URL": "http://test"}, clear=False):
-        with patch.object(main_mod, "get_user_by_telegram_id", AsyncMock(return_value={"role": "recruiter", "mode": None, "dialog_owner_id": "o2", "language": "en"})):
-            with patch("main.httpx.AsyncClient") as ac_mock:
-                client_inst = MagicMock()
-                client_inst.post = AsyncMock(return_value=fake_response)
-                ac_ctx = AsyncMock()
-                ac_ctx.__aenter__ = AsyncMock(return_value=client_inst)
-                ac_ctx.__aexit__ = AsyncMock(return_value=None)
-                ac_mock.return_value = ac_ctx
-                await _do_match_vacancy(u, ctx, pool_mock, "vacancy text")
+    with patch.dict(os.environ, {"UI_CLIENT_URL": "http://test"}, clear=False):
+        with patch.object(main_mod, "_ui_get", AsyncMock(return_value=_mock_ui_response(200, {"role": "recruiter", "mode": None, "dialog_owner_id": "o2", "language": "en"}))):
+            with patch.object(main_mod, "_ui_post", AsyncMock(return_value=fake_response)):
+                await _do_match_vacancy(u, ctx, "vacancy text")
     ctx.bot.edit_message_text.assert_called_once()
     edit_text = ctx.bot.edit_message_text.call_args[1]["text"]
     assert "trace_id=" in edit_text
