@@ -18,10 +18,11 @@ from typing import Any, Dict, List, Tuple
 import requests
 from pypdf import PdfReader
 
-DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/chat/completions")
+DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
 MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 REQUEST_TIMEOUT = int(os.getenv("DEEPSEEK_TIMEOUT", "180"))
 MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", "8000"))
+MAX_SOURCE_CHARS = int(os.getenv("DEEPSEEK_MAX_SOURCE_CHARS", "50000"))
 
 
 def command_exists(name: str) -> bool:
@@ -45,6 +46,26 @@ def normalize_whitespace(text: str) -> str:
     return text.strip()
 
 
+def cleanup_extracted_text(text: str) -> str:
+    text = normalize_whitespace(text)
+    text = re.sub(r"[^\S\n]+", " ", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"(?m)^[ \t]*[|¦]{2,}.*$", "", text)
+    text = re.sub(r"(?m)^[ \t]*Page \d+ of \d+[ \t]*$", "", text, flags=re.I)
+    text = re.sub(r"(?m)^[ \t]*Страница \d+[ \t]*$", "", text, flags=re.I)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def trim_source_text(text: str, max_chars: int = MAX_SOURCE_CHARS) -> str:
+    text = cleanup_extracted_text(text)
+    if len(text) <= max_chars:
+        return text
+    head = text[: max_chars // 2]
+    tail = text[-max_chars // 2 :]
+    return head + "\n\n[TRUNCATED]\n\n" + tail
+
+
 def detect_language(text: str) -> str:
     letters = re.findall(r"[A-Za-zА-Яа-яЁё]", text)
     if not letters:
@@ -65,10 +86,10 @@ def extract_text_from_txt(path: Path) -> str:
     raw = read_text_bytes(path)
     for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
         try:
-            return normalize_whitespace(raw.decode(enc))
+            return cleanup_extracted_text(raw.decode(enc))
         except Exception:
             pass
-    return normalize_whitespace(raw.decode("utf-8", "ignore"))
+    return cleanup_extracted_text(raw.decode("utf-8", "ignore"))
 
 
 def extract_text_from_pdf(path: Path) -> str:
@@ -79,7 +100,7 @@ def extract_text_from_pdf(path: Path) -> str:
             pages.append(page.extract_text() or "")
         except Exception:
             pages.append("")
-    return normalize_whitespace("\n".join(pages))
+    return cleanup_extracted_text("\n".join(pages))
 
 
 def cleanup_unrtf_output(text: str) -> str:
@@ -96,7 +117,7 @@ def cleanup_unrtf_output(text: str) -> str:
         if re.fullmatch(r"pict\d+\.\w+", line.strip()):
             continue
         lines.append(line)
-    return normalize_whitespace("\n".join(lines))
+    return cleanup_extracted_text("\n".join(lines))
 
 
 def rtf_hex_to_text(raw: str) -> str:
@@ -117,7 +138,7 @@ def extract_text_from_rtf_fallback(path: Path) -> str:
     raw = re.sub(r"\\u-?\d+\??", " ", raw)
     raw = re.sub(r"\\[a-zA-Z]+\d* ?", "", raw)
     raw = raw.replace("{", "").replace("}", "")
-    return normalize_whitespace(raw)
+    return cleanup_extracted_text(raw)
 
 
 def extract_text_from_rtf(path: Path) -> str:
@@ -149,7 +170,7 @@ try {{
 """
     rc, out, err = run_cmd(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script], timeout=180)
     if rc == 0 and out.strip():
-        return normalize_whitespace(out)
+        return cleanup_extracted_text(out)
     return ""
 
 
@@ -161,7 +182,7 @@ def extract_text_from_doc(path: Path) -> str:
     if command_exists("antiword"):
         rc, out, err = run_cmd(["antiword", str(path)])
         if rc == 0 and out.strip():
-            return normalize_whitespace(out)
+            return cleanup_extracted_text(out)
 
     text = extract_text_from_doc_windows_com(path)
     if text:
@@ -205,7 +226,7 @@ def html_to_text(value: str) -> str:
     value = re.sub(r"(?i)</li\s*>", "\n", value)
     value = re.sub(r"(?is)<[^>]+>", " ", value)
     value = html.unescape(value)
-    return normalize_whitespace(value)
+    return cleanup_extracted_text(value)
 
 
 def extract_text_from_html(path: Path) -> str:
@@ -336,7 +357,8 @@ def call_deepseek(messages: List[Dict[str, str]], api_key: str, json_mode: bool 
         payload["response_format"] = {"type": "json_object"}
 
     r = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
-    r.raise_for_status()
+    if not r.ok:
+        raise RuntimeError(f"DeepSeek API error {r.status_code}: {r.text}")
     body = r.json()
     content = body["choices"][0]["message"]["content"]
     return content or ""
@@ -869,11 +891,14 @@ def main() -> None:
     if not api_key:
         raise RuntimeError("Set DEEPSEEK_API_KEY environment variable")
 
-    source_text = extract_text(input_path)
+    source_text = trim_source_text(extract_text(input_path), MAX_SOURCE_CHARS)
     if not source_text.strip():
         raise RuntimeError("Failed to extract text from input file")
 
     lang = detect_language(source_text)
+
+    if args.debug:
+        Path("debug_source_text.txt").write_text(source_text, encoding="utf-8")
 
     llm_output = call_deepseek(build_extraction_prompt(source_text, lang), api_key, json_mode=True)
     if args.debug:
