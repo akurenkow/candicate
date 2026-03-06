@@ -788,7 +788,49 @@ services:
         max-file: "3"
         tag: "{{.Name}}"
 
-  # ----- Telegram Bot -----
+  # ----- UI Client (business logic for Telegram and future MAX/VK/www clients) -----
+  ui-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SVC: ui-client
+    image: rag-ui-client:latest
+    container_name: rag-ui-client
+    restart: unless-stopped
+    networks:
+      - backend
+    environment:
+      SERVICE_NAME: ui-client
+      SERVICE_PORT: 8000
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-assistant_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-assistant}
+      BASE_API_URL: http://api-gateway:8000
+      ALLOWED_UPLOAD_USER_IDS: ${ALLOWED_UPLOAD_USER_IDS:-}
+      MATCH_REQUEST_TIMEOUT: ${MATCH_REQUEST_TIMEOUT:-360.0}
+      RESUME_CONVERT_REQUEST_TIMEOUT: ${RESUME_CONVERT_REQUEST_TIMEOUT:-600.0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api-gateway:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Telegram Bot (thin client: UI only, calls ui-client) -----
   telegram-bot:
     build: ./services/telegram-bot
     image: rag-telegram-bot:latest
@@ -798,18 +840,10 @@ services:
       - backend
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      ALLOWED_UPLOAD_USER_IDS: ${ALLOWED_UPLOAD_USER_IDS:-}
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: ${POSTGRES_USER:-assistant_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpassword}
-      POSTGRES_DB: ${POSTGRES_DB:-assistant}
-      BASE_API_URL: http://api-gateway:8000
+      UI_CLIENT_URL: http://ui-client:8000
     depends_on:
-      postgres:
+      ui-client:
         condition: service_healthy
-      api-gateway:
-        condition: service_started
     logging:
       driver: "json-file"
       options:
