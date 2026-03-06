@@ -13,6 +13,7 @@ from enum import Enum
 import httpx
 from telegram import (
     BotCommand,
+    BotCommandScopeChat,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InputFile,
@@ -281,6 +282,48 @@ def _bot_error_message(key: str, lang: str, **kwargs: str | int) -> str:
     trace_id = _new_trace_id()
     logger.warning("bot_error key=%s trace_id=%s", key, trace_id)
     return _t(key, lang, **kwargs) + f" trace_id={trace_id}"
+
+
+def _commands_for_role(role: str | None, mode: str | None, lang: str) -> list[BotCommand]:
+    """Commands for menu by role/mode; lang in ('en','ru')."""
+    t = TEXTS.get(lang) or TEXTS["en"]
+    base = [
+        BotCommand("start", t["cmd_start"]),
+        BotCommand("help", t["cmd_help"]),
+        BotCommand("lang", t["cmd_lang"]),
+    ]
+    if role == "admin":
+        base.append(BotCommand("switch", t["cmd_switch"]))
+        if mode == "hr":
+            base.extend([BotCommand("link", t["cmd_link"]), BotCommand("match", t["cmd_match"])])
+        else:
+            base.extend([
+                BotCommand("convert", t["cmd_convert"]),
+                BotCommand("update", t["cmd_update"]),
+                BotCommand("hash", t["cmd_hash"]),
+                BotCommand("letter", t["cmd_letter"]),
+            ])
+    elif role == "recruiter" or role is None:
+        base.extend([BotCommand("link", t["cmd_link"]), BotCommand("match", t["cmd_match"])])
+    else:
+        base.extend([
+            BotCommand("convert", t["cmd_convert"]),
+            BotCommand("update", t["cmd_update"]),
+            BotCommand("hash", t["cmd_hash"]),
+            BotCommand("letter", t["cmd_letter"]),
+        ])
+    return base
+
+
+async def _set_commands_for_user(bot, chat_id: int, role: str | None, mode: str | None, lang: str) -> None:
+    """Set bot command list for this chat (user) by role; sets both en and ru so language switch keeps same set."""
+    cmds = _commands_for_role(role, mode, lang)
+    scope = BotCommandScopeChat(chat_id=chat_id)
+    try:
+        await bot.set_my_commands(cmds, scope=scope, language_code="en")
+        await bot.set_my_commands(cmds, scope=scope, language_code="ru")
+    except Exception as e:
+        logger.debug("set_my_commands for chat %s failed: %s", chat_id, e)
 
 
 def _menu_keyboard(role: str | None, mode: str | None, lang: str | None, dialog_owner_id: str | None = None) -> ReplyKeyboardMarkup:
@@ -708,6 +751,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     kbd = _menu_keyboard(role, mode, lang, user.get("dialog_owner_id"))
     menu = _t("menu_mode_admin", lang, mode=mode) if role == "admin" else _t("menu_ready", lang)
     await update.message.reply_text(menu, reply_markup=kbd)
+    await _set_commands_for_user(context.bot, tid, role, mode, lang)
 
 
 async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -736,6 +780,7 @@ async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         text=_t("menu_ready", lang),
         reply_markup=kbd,
     )
+    await _set_commands_for_user(context.bot, query.message.chat_id, user.get("role"), str(user.get("mode") or ""), lang)
     pending = _pending_message.pop(tid, None)
     if pending:
         await _process_chat_message(
@@ -783,6 +828,7 @@ async def _do_link(
         lang = str(user.get("language") or "en")
         kbd = _menu_keyboard(user.get("role"), str(user.get("mode") or ""), lang, owner_id)
         await update.message.reply_text(_t("menu_ready", lang), reply_markup=kbd)
+        await _set_commands_for_user(context.bot, tid, user.get("role"), str(user.get("mode") or ""), lang)
 
 
 async def switch_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -817,6 +863,7 @@ async def switch_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     lang = str(u.get("language") or "en")
     kbd = _menu_keyboard("admin", new_mode, lang, u.get("dialog_owner_id") if new_mode == "hr" else None)
     await update.message.reply_text(_t("mode_switched", lang, mode=new_mode), reply_markup=kbd)
+    await _set_commands_for_user(context.bot, tid, "admin", new_mode, lang)
 
 
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1579,29 +1626,16 @@ async def _send_restart_notices(app: Application) -> None:
 
 async def post_init(app: Application) -> None:
     await _send_restart_notices(app)
+    # Default scope: only common commands; per-user role commands set in start/switch/link/lang
     cmds_en = [
         BotCommand("start", TEXTS["en"]["cmd_start"]),
         BotCommand("help", TEXTS["en"]["cmd_help"]),
         BotCommand("lang", TEXTS["en"]["cmd_lang"]),
-        BotCommand("convert", TEXTS["en"]["cmd_convert"]),
-        BotCommand("update", TEXTS["en"]["cmd_update"]),
-        BotCommand("hash", TEXTS["en"]["cmd_hash"]),
-        BotCommand("letter", TEXTS["en"]["cmd_letter"]),
-        BotCommand("link", TEXTS["en"]["cmd_link"]),
-        BotCommand("match", TEXTS["en"]["cmd_match"]),
-        BotCommand("switch", TEXTS["en"]["cmd_switch"]),
     ]
     cmds_ru = [
         BotCommand("start", TEXTS["ru"]["cmd_start"]),
         BotCommand("help", TEXTS["ru"]["cmd_help"]),
         BotCommand("lang", TEXTS["ru"]["cmd_lang"]),
-        BotCommand("convert", TEXTS["ru"]["cmd_convert"]),
-        BotCommand("update", TEXTS["ru"]["cmd_update"]),
-        BotCommand("hash", TEXTS["ru"]["cmd_hash"]),
-        BotCommand("letter", TEXTS["ru"]["cmd_letter"]),
-        BotCommand("link", TEXTS["ru"]["cmd_link"]),
-        BotCommand("match", TEXTS["ru"]["cmd_match"]),
-        BotCommand("switch", TEXTS["ru"]["cmd_switch"]),
     ]
     await app.bot.set_my_commands(cmds_en, language_code="en")
     await app.bot.set_my_commands(cmds_ru, language_code="ru")

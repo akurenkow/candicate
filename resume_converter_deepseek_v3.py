@@ -17,9 +17,10 @@ from typing import Any, Dict, List, Tuple
 import requests
 from pypdf import PdfReader
 
-DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
+DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/chat/completions")
 MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-REQUEST_TIMEOUT = 180
+REQUEST_TIMEOUT = int(os.getenv("DEEPSEEK_TIMEOUT", "180"))
+MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", "8000"))
 
 
 def run_cmd(cmd: List[str], timeout: int = 120) -> Tuple[int, str, str]:
@@ -178,21 +179,6 @@ def extract_text(path: Path) -> str:
     return extract_text_from_txt(path)
 
 
-def call_deepseek(messages: List[Dict[str, str]], api_key: str, temperature: float = 0.0) -> str:
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": MODEL,
-        "messages": messages,
-        "temperature": temperature,
-    }
-    r = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
-
-
 CANONICAL_RULES_RU = """
 Exactly one separator: -----Секция опыта:-----
 GENERAL before separator. EXPERIENCE after separator.
@@ -275,11 +261,35 @@ Return a JSON object with this schema:
 """
 
 
+def call_deepseek(messages: List[Dict[str, str]], api_key: str, json_mode: bool = False) -> str:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload: Dict[str, Any] = {
+        "model": MODEL,
+        "messages": messages,
+        "temperature": 0,
+        "max_tokens": MAX_TOKENS,
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+
+    r = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    body = r.json()
+    content = body["choices"][0]["message"]["content"]
+    if content is None:
+        return ""
+    return content
+
+
 def build_extraction_prompt(source_text: str, lang: str) -> List[Dict[str, str]]:
     rules = CANONICAL_RULES_RU if lang == "ru" else CANONICAL_RULES_EN
     system = (
         "You are a strict resume information extraction engine. "
-        "Return strict JSON only. No markdown. No explanations. No comments."
+        "Return strict json only. No markdown. No explanations. No comments. "
+        "All strings must be valid JSON strings with escaped double quotes where needed."
     )
     user = f"""
 {rules}
@@ -295,6 +305,7 @@ Extraction rules:
 - If domain is merged into role or project name in parentheses, move it to project.domain
 - If domain is unknown, leave it empty
 - Do not place education or skills inside experience
+- Return json only
 
 Source resume text:
 <<<BEGIN_RESUME>>>
@@ -343,14 +354,20 @@ def repair_json_with_llm(bad_output: str, api_key: str) -> Dict[str, Any]:
     messages = [
         {
             "role": "system",
-            "content": "You repair malformed JSON. Return valid strict JSON only.",
+            "content": (
+                "You repair malformed json. Return valid strict json only. "
+                "Escape all inner double quotes inside JSON string values."
+            ),
         },
         {
             "role": "user",
-            "content": f"Repair this malformed JSON and return only valid JSON:\n\n{bad_output}",
+            "content": (
+                "Repair this malformed json and return only valid json.\n\n"
+                f"{bad_output}"
+            ),
         },
     ]
-    repaired = call_deepseek(messages, api_key, temperature=0.0)
+    repaired = call_deepseek(messages, api_key, json_mode=True)
     return parse_json_loose(repaired)
 
 
@@ -706,7 +723,10 @@ def render_experience(data: Dict[str, Any], lang: str) -> List[str]:
 def collapse_spaced_dashes_in_line(line: str) -> str:
     if not re.match(r"^\s*-\s+-", line):
         return line
-    prefix, rest = re.match(r"^(\s*(?:-\s+){1,4})(.*)$", line).groups()
+    m = re.match(r"^(\s*(?:-\s+){1,4})(.*)$", line)
+    if not m:
+        return line
+    prefix, rest = m.groups()
     dash_count = prefix.count("-")
     dash_count = max(1, min(4, dash_count))
     return f"{'-' * dash_count} {rest.strip()}"
@@ -796,10 +816,15 @@ def main() -> None:
         raise RuntimeError("Failed to extract text from input file")
 
     lang = detect_language(source_text)
-    llm_output = call_deepseek(build_extraction_prompt(source_text, lang), api_key, temperature=0.0)
 
+    llm_output = call_deepseek(build_extraction_prompt(source_text, lang), api_key, json_mode=True)
     if args.debug:
         Path("debug_llm_output.txt").write_text(llm_output, encoding="utf-8")
+
+    if not llm_output.strip():
+        llm_output = call_deepseek(build_extraction_prompt(source_text, lang), api_key, json_mode=False)
+        if args.debug:
+            Path("debug_llm_output_fallback.txt").write_text(llm_output, encoding="utf-8")
 
     try:
         raw_data = parse_json_loose(llm_output)
