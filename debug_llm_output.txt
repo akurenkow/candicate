@@ -1,0 +1,161 @@
+{
+  "language": "ru",
+  "general": {
+    "full_name": "Антон Куренков",
+    "gender": "",
+    "birth_date": "13.11.1993",
+    "phone": "+7 (921) 3417538",
+    "email": "a.k.a1306@mail.ru",
+    "other_contacts": ["Gitflic: https://gitflic.ru/user/akurenkov", "Github: https://github.com/antonkurenkov"],
+    "location": "Санкт-Петербург, Россия",
+    "citizenship": "Россия",
+    "relocation": "Готов к переезду",
+    "total_experience": "8 лет",
+    "employment_type": "Полная занятость",
+    "hiring_arrangement": "Удаленная работа",
+    "work_format": "Удаленно",
+    "availability": "С 1 ноября 2024",
+    "education": [{"institution": "Санкт-Петербургский государственный университет", "degree": "Магистр", "field": "Прикладная математика и информатика", "year": "2015"}, {"institution": "University of Lodz (PL)", "degree": "", "field": "Biology", "year": "2013"}],
+    "military_status": "",
+    "skills": {
+      "languages": "Английский C2",
+      "core_technologies": "Python, SQL, NoSQL, Linux, PostgreSQL, Oracle DB, MongoDB, Tarantool, Docker, Docker-compose, Jenkins, CI/CD, SIEM, Clickhouse, Apache Spark, Apache Airflow, RabbitMQ, Apache Kafka, GitLab CI, OpenSSL, ML, Computer Vision, NLP, Jupyter Notebook, Redis, Celery, Grafana, Zabbix, SQLAlchemy, Cursor"
+    }
+  },
+  "additional": {
+    "about": "Python-разработчик (Senior/Lead Python Developer) с 8-летним опытом. Специализация: backend-разработка, ETL-процессы, машинное обучение (MLOps), управление командами (до 15 человек), архитектура систем, настройка CI/CD-процессов (Gitlab CI, Jenkins, Github Actions).",
+    "desired_positions": ["Python / Senior Lead Backend developer Python"],
+    "salary": {
+      "minimum": "",
+      "comfortable": ""
+    },
+    "payment_currency": "",
+    "reason_for_change": "",
+    "what_wants": "Интересные задачи, удаленная работа, RND. Гибкий график, команда, развитие.",
+    "what_avoids": "",
+    "interesting_tasks": "Работа с Cursor и LLM.",
+    "key_skills": ["ETL-процессы", "MLOps", "Управление командами", "Архитектура систем", "CI/CD", "Python", "Django", "FastAPI", "PostgreSQL", "Apache Spark", "Docker", "Grafana", "Sentry"]
+  },
+  "experience": [
+    {
+      "company": "Oldridge & Barnes",
+      "period": "ноябрь 2024 - настоящее время",
+      "role": "Python / Team Tech Lead Python developer (удаленно)",
+      "projects": [
+        {
+          "name": "Разработка backend-системы",
+          "domain": "",
+          "responsibilities": ["Разработка и поддержка backend-системы", "Управление командой разработки", "Оптимизация производительности", "Внедрение AI (RAG LLM - генеративный поиск)", "Работа с Cursor"],
+          "technologies": "Python 3.8, Django, Postgres, Pandas, Numpy, PyTest, CProfile, Celery, RabbitMQ, Flower, Grafana, Metabase, OpenAPI (Swagger), Gitlab CI, Bash, Debian, Pylint/Commitlint, Kaiten, Ollama, Qdrant, Cursor"
+        }
+      ],
+      "additional_activity": {
+        "title": "",
+        "responsibilities": []
+      }
+    },
+    {
+      "company": "",
+      "period": "апрель 2023 - октябрь 2024",
+      "role": "Python / Senior Python Developer (SIEM)",
+      "projects": [
+        {
+          "name": "Разработка SIEM-системы",
+          "domain": "Кибербезопасность",
+          "responsibilities": ["Разработка и поддержка SIEM-системы", "Оптимизация производительности", "Управление командой разработки"],
+          "technologies": "Astra Linux, Python 3.7, Django, Flask, OpenSSL, grasshopper, cryptography, SQLAlchemy, Alembic, Pydantic, Pytest, Celery, RabbitMQ, Flower, OpenAPI (Swagger), Postgresql, Pandas, Numpy, Lxml, Bash, TLS, Poetry, Sentry"
+        }
+      ],
+      "additional_activity": {
+        "title": "",
+        "responsibilities": []
+      }
+    },
+    {
+      "company": "ToolsTrek",
+      "period": "сентябрь 2022 - март 2023",
+      "role": "Python / Senior Developer Data Scientist MLOps (ETL, ML)",
+      "projects": [
+        {
+          "name": "Разработка ETL/ML-системы",
+          "domain": "Аналитика данных",
+          "responsibilities": ["Разработка ETL-процессов с использованием HDFS и Apache Spark", "Оптимизация SQL-запросов", "Настройка CI/CD (Gitlab CI)", "Разработка ML-моделей (Random Forest, Linear Regression, K-mean)", "Мониторинг с использованием Grafana/Zabbix и ML", "Интеграция Sentry"],
+          "technologies": "Python 3.8, Go, Lua, FastAPI, AsyncIO, AIOPG, PostgreSQL, Tarantool, Clickhouse, Apache Spark (PySpark), Parquet, Kafka, Celery, Flower, Redis, Pandas, Numpy, SKlearn (scikit-learn), RFR, LR, Kmeans, Grafana, Zabbix, Sentry, Gitlab CI, CentOS, RHL (RedHat), Bash, Jupyter Notebook"
+        }
+      ],
+      "additional_activity": {
+        "title": "",
+        "responsibilities": []
+      }
+    },
+    {
+      "company": "Halsa",
+      "period": "июнь 2021 - август 2022",
+      "role": "Python / Fullstack Teamlead Techlead Python (B2C проект)",
+      "projects": [
+        {
+          "name": "Разработка B2C-платформы",
+          "domain": "Здоровье и фитнес",
+          "responsibilities": ["Разработка и поддержка B2C-платформы", "Управление командой разработки", "Интеграция платежных систем (Apple Pay / Android Pay)", "Оптимизация UX", "Настройка мониторинга (Zabbix, Metabase, Sentry)"],
+          "technologies": "Python 3.7, Django, Postgresql, RabbitMQ, Celery, Docker, Yandex Cloud, django-explorer, Flower, Zabbix, Metabase, Sentry, PlantUML, Gitlab, Upsource, Poetry, Pylint"
+        }
+      ],
+      "additional_activity": {
+        "title": "",
+        "responsibilities": []
+      }
+    },
+    {
+      "company": "Agro Club",
+      "period": "июнь 2021 - июнь 2021",
+      "role": "Python / Senior Python developer",
+      "projects": [
+        {
+          "name": "Разработка B2B-платформы",
+          "domain": "Сельское хозяйство",
+          "responsibilities": ["Настройка CI/CD Gitlab Github", "Развертывание на AWS с использованием docker compose + swarm", "Интеграция Grafana, Sentry, Metabase", "Разработка API с Swagger", "Оптимизация покрытия тестами до 87%", "Разработка демо-версий для presale", "Работа с AWS Lambda"],
+          "technologies": "Python 3.7, FastAPI, AsyncIO, AIOPG, Postgresql, Pytest, MongoDB, Grafana, Sentry, Metabase, Docker-compose, Docker swarm, RabbitMQ, Celery, AWS EC2, AWS S3, AWS Lambda, Gitlab CI, Github Actions, OpenAPI (Swagger), SQLAlchemy"
+        }
+      ],
+      "additional_activity": {
+        "title": "",
+        "responsibilities": []
+      }
+    },
+    {
+      "company": "",
+      "period": "февраль 2018 - март 2021",
+      "role": "Python / Data engineer scientist analyst",
+      "projects": [
+        {
+          "name": "Проект 1: Разработка backend-системы 2.0",
+          "domain": "",
+          "responsibilities": ["Разработка API", "Написание unit-тестов (Pytest)", "Настройка CI/CD Jenkins", "Документирование API с использованием OpenAPI (Swagger)"],
+          "technologies": "Python 3.6, Django, Postgresql, Celery, RabbitMQ, Pytest, Jenkins, Hadoop (HDFS)"
+        },
+        {
+          "name": "Проект 2: Разработка ETL-системы",
+          "domain": "",
+          "responsibilities": ["Разработка ETL-процессов на Java Spring", "Создание DAG-задач в Apache Airflow", "Миграция данных из Oracle в Postgres", "Настройка Airflow Scheduler", "Разработка ETL-скриптов"],
+          "technologies": "Python 3.6, Java Spring, Apache Airflow, Oracle, pyTelegramBotAPI, Postgresql, Pytest, Pandas, Numpy, SQLAlchemy, Centos, Bash, Zabbix, Grafana"
+        },
+        {
+          "name": "Проект 3: Разработка ML-системы SOKRAT",
+          "domain": "Машинное обучение",
+          "responsibilities": ["Разработка ML-моделей в Jupyter", "Использование алгоритмов (Random Forest, XGBoost, Arima/Sarimax)", "Настройка CI/CD github actions для ML", "Работа с компьютерным зрением (Keras, TensorFlow, cv2)", "Развертывание на docker-swarm"],
+          "technologies": "Python 3.7, Django, Postgresql, Jupyter-notebook, Scikit-learn, Numpy, Pandas, Matplotlib, Statmodels, Seaborn, Cv2, Keras, TensorFlow, Docker, Docker-compose"
+        },
+        {
+          "name": "Личный проект: Разработка телеграм-бота",
+          "domain": "",
+          "responsibilities": ["Разработка телеграм-бота", "Настройка CI/CD", "Работа с SQL / NoSQL (PostgreSQL, MongoDB)", "Управление командой из 4 человек"],
+          "technologies": "Python 3.7, AIOgram, pyTelegramBotAPI, PostgreSQL, Mongodb, Github actions, Docker-compose, Commitlint, MyPy, Poetry"
+        }
+      ],
+      "additional_activity": {
+        "title": "",
+        "responsibilities": []
+      }
+    }
+  ]
+}

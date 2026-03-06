@@ -23,6 +23,7 @@ from db import (
     set_last_restart_message_id,
     set_pending_state,
     update_language,
+    update_last_telegram_message_id,
     update_mode,
     update_role,
 )
@@ -165,6 +166,12 @@ class ResumeConvertResponse(BaseModel):
 
 
 class RestartNotifyStoreRequest(BaseModel):
+    external_id: str
+    source: str = "telegram"
+    message_id: int
+
+
+class RestartNotifyLastMessageRequest(BaseModel):
     external_id: str
     source: str = "telegram"
     message_id: int
@@ -511,6 +518,24 @@ async def messages_get(message_id: str):
     }
 
 
+async def _resume_convert_forward(response: httpx.Response) -> ResumeConvertResponse:
+    if response.status_code != 200:
+        try:
+            d = response.json()
+            err = d.get("detail", response.text)
+        except Exception:
+            err = response.text or str(response.status_code)
+        err_str = str(err)[:500] if not isinstance(err, str) else err[:500]
+        if response.status_code == 504:
+            err_str = "resume_convert_chunk_timeout"
+        return ResumeConvertResponse(structured_text=None, error=err_str, success=False)
+    data = response.json()
+    out = (data.get("structured_text") or "").strip()
+    if not out:
+        return ResumeConvertResponse(structured_text=None, error="empty_response", success=False)
+    return ResumeConvertResponse(structured_text=out, error=None, success=True)
+
+
 @app.post("/resume/convert", response_model=ResumeConvertResponse)
 async def resume_convert(req: ResumeConvertRequest):
     if not BASE_API_URL:
@@ -523,28 +548,46 @@ async def resume_convert(req: ResumeConvertRequest):
     except Exception as e:
         logger.exception("Resume convert error: %s", e)
         return ResumeConvertResponse(structured_text=None, error=str(e)[:500], success=False)
-    if r.status_code != 200:
-        try:
-            d = r.json()
-            err = d.get("detail", r.text)
-        except Exception:
-            err = r.text or str(r.status_code)
-        err_str = str(err)[:500] if not isinstance(err, str) else err[:500]
-        if r.status_code == 504:
-            err_str = "resume_convert_chunk_timeout"
-        return ResumeConvertResponse(structured_text=None, error=err_str, success=False)
-    data = r.json()
-    out = (data.get("structured_text") or "").strip()
-    if not out:
-        return ResumeConvertResponse(structured_text=None, error="empty_response", success=False)
-    return ResumeConvertResponse(structured_text=out, error=None, success=True)
+    return await _resume_convert_forward(r)
+
+
+@app.post("/resume/convert/file", response_model=ResumeConvertResponse)
+async def resume_convert_file(file: UploadFile = File(...)):
+    """Accept resume file, forward to api-gateway /resume/convert (multipart)."""
+    if not BASE_API_URL:
+        raise HTTPException(status_code=503, detail="service_error")
+    content = await file.read()
+    if not content:
+        return ResumeConvertResponse(structured_text=None, error="empty_file", success=False)
+    try:
+        async with httpx.AsyncClient(timeout=RESUME_CONVERT_REQUEST_TIMEOUT) as client:
+            r = await client.post(
+                f"{BASE_API_URL}/resume/convert",
+                files={"file": (file.filename or "resume.txt", content)},
+            )
+    except httpx.TimeoutException:
+        return ResumeConvertResponse(structured_text=None, error="timeout", success=False)
+    except Exception as e:
+        logger.exception("Resume convert file error: %s", e)
+        return ResumeConvertResponse(structured_text=None, error=str(e)[:500], success=False)
+    return await _resume_convert_forward(r)
 
 
 @app.get("/users/restart-notify")
 async def users_restart_notify(source: str = "telegram", pool: asyncpg.Pool = Depends(get_pool)):
     async with pool.acquire() as conn:
         users = await get_users_for_restart_notify(conn, source)
-    return [{"external_id": uid, "last_restart_message_id": mid, "language": lang} for uid, mid, lang in users]
+    return [
+        {"external_id": uid, "last_restart_message_id": mid, "language": lang, "last_telegram_message_id": last_mid}
+        for uid, mid, lang, last_mid in users
+    ]
+
+
+@app.post("/users/restart-notify/last-message")
+async def users_restart_notify_last_message(req: RestartNotifyLastMessageRequest, pool: asyncpg.Pool = Depends(get_pool)):
+    async with pool.acquire() as conn:
+        await update_last_telegram_message_id(conn, req.external_id, req.message_id)
+    return {"ok": True}
 
 
 @app.post("/users/restart-notify/store")

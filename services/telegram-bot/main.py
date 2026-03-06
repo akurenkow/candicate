@@ -12,6 +12,7 @@ from enum import Enum
 
 import httpx
 from telegram import (
+    Bot,
     BotCommand,
     BotCommandScopeChat,
     InlineKeyboardButton,
@@ -35,11 +36,7 @@ from vacancy_extract import (
     extract_vacancy_text,
     is_vacancy_file,
 )
-from resume_convert import (
-    MAX_RESUME_CONVERT_BYTES,
-    extract_resume_text,
-    is_resume_convert_file,
-)
+from resume_convert import is_resume_convert_file
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,6 +59,29 @@ async def _ui_get(path: str, timeout: float = 10.0) -> httpx.Response:
 async def _ui_post(path: str, json: dict | None = None, data: dict | None = None, files: dict | None = None, timeout: float = 30.0) -> httpx.Response:
     async with httpx.AsyncClient(timeout=timeout) as client:
         return await client.post(_ui_client_url() + path, json=json, data=data, files=files)
+
+
+def _track_telegram_message(chat_id: int, message_id: int) -> None:
+    """Fire-and-forget: notify UI about latest message_id in chat (for restart-notice edit vs send decision)."""
+    if not _ui_client_url():
+        return
+    payload = {"external_id": str(chat_id), "source": SOURCE_TELEGRAM, "message_id": message_id}
+    async def _post():
+        try:
+            await _ui_post("/users/restart-notify/last-message", json=payload, timeout=5.0)
+        except Exception as e:
+            logger.debug("Track telegram message failed: %s", e)
+    asyncio.create_task(_post())
+
+
+class _TrackingBot(Bot):
+    """Bot that reports sent message_id to UI so restart notice is edited only when still last in chat."""
+
+    async def send_message(self, chat_id=None, text=None, *args, **kwargs):
+        result = await super().send_message(chat_id=chat_id, text=text, *args, **kwargs)
+        if result and getattr(result, "message_id", None) and chat_id is not None:
+            _track_telegram_message(int(chat_id), result.message_id)
+        return result
 
 
 # ru/en localization (UI only); default language if not set: en
@@ -1028,6 +1048,10 @@ async def convert_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(_t("candidates_only", str(user.get("language") or "en")))
         return
     _set_state(tid, BotState.WAITING_RESUME_TO_CONVERT)
+    try:
+        await _ui_post(f"/users/set-pending-state?external_id={tid}&source={SOURCE_TELEGRAM}&state={BotState.WAITING_RESUME_TO_CONVERT.value}")
+    except Exception:
+        pass
     await update.message.reply_text(_t("send_resume_to_convert", str(user.get("language") or "en")))
 
 
@@ -1200,10 +1224,12 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     candidate_eligible = _is_candidate_eligible(
         user.get("role"), str(user.get("mode")) if user.get("mode") else None
     )
-    # Restore WAITING_COVER_LETTER_VACANCY after restart (state is in DB as pending_state)
+    # Restore WAITING_COVER_LETTER_VACANCY / WAITING_RESUME_TO_CONVERT after restart (state is in DB as pending_state)
     effective_state = state
     if candidate_eligible and state == BotState.ACTIVE and user.get("pending_state") == BotState.WAITING_COVER_LETTER_VACANCY.value:
         effective_state = BotState.WAITING_COVER_LETTER_VACANCY
+    if candidate_eligible and state == BotState.ACTIVE and user.get("pending_state") == BotState.WAITING_RESUME_TO_CONVERT.value:
+        effective_state = BotState.WAITING_RESUME_TO_CONVERT
     if candidate_eligible and effective_state == BotState.WAITING_COVER_LETTER_VACANCY:
         if not is_vacancy_file(filename):
             await update.message.reply_text(_t("vacancy_format", lang))
@@ -1260,12 +1286,17 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(_t("candidates_only", lang))
         return
 
-    if state == BotState.WAITING_RESUME_TO_CONVERT:
+    if effective_state == BotState.WAITING_RESUME_TO_CONVERT:
         if not is_resume_convert_file(doc.file_name or ""):
             await update.message.reply_text(_t("convert_format", lang))
             return
-        if doc.file_size and doc.file_size > MAX_RESUME_CONVERT_BYTES:
-            await update.message.reply_text(_t("file_too_large_1mb", lang))
+        if not _ui_client_url():
+            _set_state(tid, BotState.ACTIVE)
+            try:
+                await _ui_post(f"/users/set-pending-state?external_id={tid}&source={SOURCE_TELEGRAM}")
+            except Exception:
+                pass
+            await update.message.reply_text(_bot_error_message("service_error", lang))
             return
         try:
             tg_file = await context.bot.get_file(doc.file_id)
@@ -1273,49 +1304,65 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         except Exception as e:
             logger.exception("Download resume for convert failed: %s", e)
             _set_state(tid, BotState.ACTIVE)
+            try:
+                await _ui_post(f"/users/set-pending-state?external_id={tid}&source={SOURCE_TELEGRAM}")
+            except Exception:
+                pass
             await update.message.reply_text(_t("download_failed", lang))
             return
-        raw_text = extract_resume_text(doc.file_name or "", bytes(raw))
-        if not raw_text or not raw_text.strip():
+        if not raw:
             _set_state(tid, BotState.ACTIVE)
+            try:
+                await _ui_post(f"/users/set-pending-state?external_id={tid}&source={SOURCE_TELEGRAM}")
+            except Exception:
+                pass
             await update.message.reply_text(_t("convert_extract_failed", lang))
             return
-        if not _ui_client_url():
-            _set_state(tid, BotState.ACTIVE)
-            await update.message.reply_text(_bot_error_message("service_error", lang))
-            return
         sent = await update.message.reply_text(_t("convert_processing", lang))
+        filename = doc.file_name or "resume.txt"
         try:
-            conv_r = await _ui_post("/resume/convert", json={"raw_text": raw_text.strip()}, timeout=600.0)
+            conv_r = await _ui_post(
+                "/resume/convert/file",
+                files={"file": (filename, bytes(raw))},
+                timeout=600.0,
+            )
         except Exception as e:
             logger.exception("resume/convert error: %s", e)
             _set_state(tid, BotState.ACTIVE)
+            try:
+                await _ui_post(f"/users/set-pending-state?external_id={tid}&source={SOURCE_TELEGRAM}")
+            except Exception:
+                pass
             await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=_t("convert_failed", lang))
             return
         _set_state(tid, BotState.ACTIVE)
+        try:
+            await _ui_post(f"/users/set-pending-state?external_id={tid}&source={SOURCE_TELEGRAM}")
+        except Exception:
+            pass
         if conv_r.status_code != 200:
-            await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=_t("convert_failed", lang))
+            try:
+                err = conv_r.json().get("detail", conv_r.text)
+            except Exception:
+                err = conv_r.text or str(conv_r.status_code)
+            msg = _t("convert_timeout", lang) if "timeout" in str(err).lower() else _t("convert_failed", lang) + (f" ({err})" if err else "")
+            await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=msg)
             return
         result = conv_r.json()
-        if result.get("success") and result.get("structured_text"):
-            try:
-                await context.bot.delete_message(chat_id=sent.chat_id, message_id=sent.message_id)
-            except Exception:
-                pass
-            name = (doc.file_name or "resume").rsplit(".", 1)[0]
-            out_name = f"{name}_resume.txt"
-            st = result["structured_text"]
-            if len(st) <= 4096:
-                await update.message.reply_text(st)
-            else:
-                await update.message.reply_document(
-                    document=InputFile(st.encode("utf-8"), filename=out_name),
-                )
-            await update.message.reply_text(_t("convert_done", lang))
-        else:
-            err = result.get("error") or ""
-            msg = _t("convert_timeout", lang) if "timeout" in err.lower() else _t("convert_failed", lang) + (f" ({err})" if err else "")
-            await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=msg)
+        st = result.get("structured_text") or ""
+        if not st:
+            await context.bot.edit_message_text(chat_id=sent.chat_id, message_id=sent.message_id, text=_t("convert_failed", lang))
+            return
+        try:
+            await context.bot.delete_message(chat_id=sent.chat_id, message_id=sent.message_id)
+        except Exception:
+            pass
+        name = (doc.file_name or "resume").rsplit(".", 1)[0]
+        out_name = f"{name}_resume.txt"
+        await update.message.reply_document(
+            document=InputFile(st.encode("utf-8"), filename=out_name),
+        )
+        await update.message.reply_text(_t("convert_done", lang))
         return
 
     filename = doc.file_name or "resume.txt"
@@ -1584,6 +1631,12 @@ async def ping_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text("pong")
 
 
+async def _track_incoming_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Track incoming message_id so restart notice is edited only when still last in chat. No reply."""
+    if update.message and update.effective_chat:
+        _track_telegram_message(update.effective_chat.id, update.message.message_id)
+
+
 async def _send_restart_notices(app: Application) -> None:
     if not _ui_client_url():
         return
@@ -1600,6 +1653,7 @@ async def _send_restart_notices(app: Application) -> None:
     for u in users:
         external_id = u.get("external_id")
         last_msg_id = u.get("last_restart_message_id")
+        last_telegram_msg_id = u.get("last_telegram_message_id")
         lang = (u.get("language") or "en").strip().lower()
         if lang != "ru":
             lang = "en"
@@ -1608,7 +1662,12 @@ async def _send_restart_notices(app: Application) -> None:
             chat_id = int(external_id)
         except (ValueError, TypeError):
             continue
-        if last_msg_id is not None:
+        # Edit only if restart message is still the last in chat; otherwise send new.
+        should_edit = (
+            last_msg_id is not None
+            and (last_telegram_msg_id is None or last_msg_id >= last_telegram_msg_id)
+        )
+        if should_edit:
             try:
                 await bot.edit_message_text(chat_id=chat_id, message_id=last_msg_id, text=text)
                 continue
@@ -1655,13 +1714,15 @@ def main() -> None:
         "Starting telegram-bot (thin client): UI_CLIENT_URL=%s",
         ui_url or "(empty)",
     )
+    bot = _TrackingBot(token=token)
     app = (
         Application.builder()
-        .token(token)
+        .bot(bot)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
         .build()
     )
+    app.add_handler(MessageHandler(filters.ALL, _track_incoming_message), group=-1)
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(CommandHandler("help", help_handler))
     app.add_handler(CommandHandler("link", link_handler))

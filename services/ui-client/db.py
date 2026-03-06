@@ -201,8 +201,9 @@ async def link_hash(
     return True, f"Связан с кандидатом {owner_id}. / Linked to candidate {owner_id}.", owner_id
 
 
-async def get_users_for_restart_notify(conn: asyncpg.Connection, source: str | None = None) -> list[tuple[str, int | None, str]]:
-    """Return list of (telegram_id, last_restart_message_id or None, language)."""
+async def get_users_for_restart_notify(conn: asyncpg.Connection, source: str | None = None) -> list[tuple[str, int | None, str, int | None]]:
+    """Return all users for restart broadcast: (telegram_id, last_restart_message_id or None, language, last_telegram_message_id or None).
+    No filter by pending_state or is_active — notify everyone with telegram_id, not only those waiting for response."""
     def _norm_lang(r: asyncpg.Record) -> str:
         lang = r.get("language", "en") or "en"
         return "ru" if (isinstance(lang, str) and lang.strip().lower() == "ru") else "en"
@@ -210,7 +211,7 @@ async def get_users_for_restart_notify(conn: asyncpg.Connection, source: str | N
     if source:
         try:
             rows = await conn.fetch(
-                "SELECT telegram_id, last_restart_message_id, language FROM users WHERE telegram_id IS NOT NULL AND source = $1",
+                "SELECT telegram_id, last_restart_message_id, language, last_telegram_message_id FROM users WHERE telegram_id IS NOT NULL AND source = $1",
                 source,
             )
         except UndefinedColumnError:
@@ -218,24 +219,45 @@ async def get_users_for_restart_notify(conn: asyncpg.Connection, source: str | N
                 "SELECT telegram_id, last_restart_message_id FROM users WHERE telegram_id IS NOT NULL AND source = $1",
                 source,
             )
-            return [(str(r["telegram_id"]), r.get("last_restart_message_id"), "en") for r in rows]
+            return [(str(r["telegram_id"]), r.get("last_restart_message_id"), "en", None) for r in rows]
     else:
         try:
             rows = await conn.fetch(
-                "SELECT telegram_id, last_restart_message_id, language FROM users WHERE telegram_id IS NOT NULL"
+                "SELECT telegram_id, last_restart_message_id, language, last_telegram_message_id FROM users WHERE telegram_id IS NOT NULL"
             )
         except UndefinedColumnError:
             rows = await conn.fetch(
-                "SELECT telegram_id, last_restart_message_id FROM users WHERE telegram_id IS NOT NULL"
+                "SELECT telegram_id, last_restart_message_id, language FROM users WHERE telegram_id IS NOT NULL"
             )
-            return [(str(r["telegram_id"]), r.get("last_restart_message_id"), "en") for r in rows]
-    return [(str(r["telegram_id"]), r["last_restart_message_id"], _norm_lang(r)) for r in rows]
+            return [(str(r["telegram_id"]), r.get("last_restart_message_id"), _norm_lang(r), None) for r in rows]
+    return [(str(r["telegram_id"]), r["last_restart_message_id"], _norm_lang(r), r.get("last_telegram_message_id")) for r in rows]
 
 
 async def set_last_restart_message_id(conn: asyncpg.Connection, external_id: str, message_id: int) -> int:
     try:
         r = await conn.execute(
-            "UPDATE users SET last_restart_message_id = $1 WHERE telegram_id = $2",
+            "UPDATE users SET last_restart_message_id = $1, last_telegram_message_id = GREATEST(COALESCE(last_telegram_message_id, 0), $1) WHERE telegram_id = $2",
+            message_id,
+            str(external_id),
+        )
+        return int(r.split()[-1])
+    except UndefinedColumnError:
+        try:
+            r = await conn.execute(
+                "UPDATE users SET last_restart_message_id = $1 WHERE telegram_id = $2",
+                message_id,
+                str(external_id),
+            )
+            return int(r.split()[-1])
+        except UndefinedColumnError:
+            return 0
+
+
+async def update_last_telegram_message_id(conn: asyncpg.Connection, external_id: str, message_id: int) -> int:
+    """Set last_telegram_message_id to max(current, message_id) for the user. No-op if column missing."""
+    try:
+        r = await conn.execute(
+            "UPDATE users SET last_telegram_message_id = GREATEST(COALESCE(last_telegram_message_id, 0), $1) WHERE telegram_id = $2",
             message_id,
             str(external_id),
         )

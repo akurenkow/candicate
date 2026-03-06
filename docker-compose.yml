@@ -283,10 +283,7 @@ services:
       GENERATION_SERVICE_URL: http://generation-service:8000
       INGESTION_SERVICE_URL: http://ingestion-service:8000
       AUTHZ_SERVICE_URL: http://authz-service:8000
-
-      # Конвертация резюме: лимит вывода на один чанк (токены), таймаут на чанк (сек)
-      GENERATE_MAX_CHUNK: ${GENERATE_MAX_CHUNK:-1000}
-      RESUME_CONVERT_CHUNK_TIMEOUT: ${RESUME_CONVERT_CHUNK_TIMEOUT:-90}
+      RESUME_CONVERTER_URL: http://resume-converter:8000
 
       # Инфраструктура
       REDIS_URL: redis://redis:6379/0
@@ -312,6 +309,8 @@ services:
       rabbitmq:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      resume-converter:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
@@ -396,6 +395,64 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Resume Converter (DeepSeek: .txt/.pdf/.doc/.rtf -> canonical .txt) -----
+  resume-converter:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SVC: resume-converter
+    image: rag-resume-converter:latest
+    container_name: rag-resume-converter
+    restart: unless-stopped
+    networks:
+      - backend
+    environment:
+      SERVICE_NAME: resume-converter
+      SERVICE_PORT: 8000
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      CELERY_BROKER_URL: redis://redis:6379/6
+      RESUME_CONVERT_TASK_TIMEOUT: ${RESUME_CONVERT_TASK_TIMEOUT:-600}
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Resume Converter Worker (Celery: queue resume_convert only) -----
+  resume-converter-worker:
+    image: rag-resume-converter:latest
+    container_name: rag-resume-converter-worker
+    restart: unless-stopped
+    networks:
+      - backend
+    command: ["celery", "-A", "celery_app", "worker", "-Q", "resume_convert", "-l", "info"]
+    environment:
+      SERVICE_NAME: resume-converter-worker
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      CELERY_BROKER_URL: redis://redis:6379/6
+    depends_on:
+      redis:
+        condition: service_healthy
+      resume-converter:
+        condition: service_healthy
     logging:
       driver: "json-file"
       options:
