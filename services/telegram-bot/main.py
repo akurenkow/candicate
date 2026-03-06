@@ -1643,14 +1643,19 @@ async def _send_restart_notices(app: Application) -> None:
         return
     bot = app.bot
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    try:
-        r = await _ui_get(f"/users/restart-notify?source={SOURCE_TELEGRAM}")
-    except Exception as e:
-        logger.warning("Restart notify list failed: %s", e)
+    users = None
+    for attempt in range(3):
+        if attempt > 0:
+            await asyncio.sleep(2.0 * attempt)
+        try:
+            r = await _ui_get(f"/users/restart-notify?source={SOURCE_TELEGRAM}")
+            if r.status_code == 200:
+                users = r.json()
+                break
+        except Exception as e:
+            logger.warning("Restart notify list attempt %s failed: %s", attempt + 1, e)
+    if not users:
         return
-    if r.status_code != 200:
-        return
-    users = r.json()
     for u in users:
         external_id = u.get("external_id")
         last_msg_id = u.get("last_restart_message_id")
@@ -1686,7 +1691,10 @@ async def _send_restart_notices(app: Application) -> None:
 
 
 async def post_init(app: Application) -> None:
-    await _send_restart_notices(app)
+    async def _deferred_restart_notices() -> None:
+        await asyncio.sleep(2.0)
+        await _send_restart_notices(app)
+    asyncio.create_task(_deferred_restart_notices())
     # Default scope: only common commands; per-user role commands set in start/switch/link/lang
     cmds_en = [
         BotCommand("start", TEXTS["en"]["cmd_start"]),
@@ -1715,7 +1723,6 @@ def main() -> None:
         "Starting telegram-bot (thin client): UI_CLIENT_URL=%s",
         ui_url or "(empty)",
     )
-    bot = _TrackingBot(token=token)
     read_timeout = float(os.getenv("TELEGRAM_READ_TIMEOUT", "60.0"))
     write_timeout = float(os.getenv("TELEGRAM_WRITE_TIMEOUT", "30.0"))
     connect_timeout = float(os.getenv("TELEGRAM_CONNECT_TIMEOUT", "10.0"))
@@ -1724,10 +1731,10 @@ def main() -> None:
         write_timeout=write_timeout,
         connect_timeout=connect_timeout,
     )
+    bot = _TrackingBot(token=token, request=request)
     app = (
         Application.builder()
         .bot(bot)
-        .request(request)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
         .build()
