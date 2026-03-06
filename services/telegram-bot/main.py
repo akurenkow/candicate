@@ -167,7 +167,7 @@ TEXTS = {
         "match_summary_failed": "Анализ вакансии не завершён: {error}. /help",
         "long_message_use_letter": "Сообщение слишком длинное для чата. Используйте команду /letter для генерации сопроводительного письма по вакансии.",
         "long_message_use_match": "Сообщение слишком длинное для чата. Используйте команду /match сопоставления резюме кандидата с описанием вакансии.",
-        "restart_notice": "🔄 Сервис был перезагружен {timestamp}. Повторите отправку сообщения или команды, если ожидаете ответа. /help",
+        "restart_notice": "😵 Я был перезагружен {timestamp}. Повторите отправку сообщения или команды, если еще ждете ответа. /help",
     },
     "en": {
         "update_resume": "Update resume",
@@ -249,7 +249,7 @@ TEXTS = {
         "match_summary_failed": "Match analysis did not complete: {error}. /help",
         "long_message_use_letter": "Message too long for chat. Use /letter to generate a cover letter for the vacancy. /help",
         "long_message_use_match": "Message too long for chat. Use /match to run vacancy match. /help",
-        "restart_notice": "🔄 Service was restarted at {timestamp}. Please resend your message or command if you are waiting for a response. /help",
+        "restart_notice": "😵 I was reloaded at {timestamp}. Please resend your message or command if you are waiting for a response. /help",
     },
 }
 
