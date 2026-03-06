@@ -15,14 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pypdf import PdfReader
 
 MONTHS_RU = "Январь|Февраль|Март|Апрель|Май|Июнь|Июль|Август|Сентябрь|Октябрь|Ноябрь|Декабрь"
-MONTHS_RU_LOWER = "январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь"
-_MONTHS_ANY = f"(?:{MONTHS_RU}|{MONTHS_RU_LOWER})"
-# HH export: "Сентябрь 2022 — настоящее время" or "Сентябрь 2022 — Октябрь 2024 2 года"; allow – (en-dash), н.в.
-PERIOD_RE = re.compile(
-    rf"^{_MONTHS_ANY} \\d{{4}}\s*[—–-]\s*"
-    rf"(?:{_MONTHS_ANY} \\d{{4}}|настоящее время|н\\.\\s*в\\.|по настоящему времени|по н\\.\\s*в\\.)"
-    r"(?:\s+\d+\s+[^\n]+)?$"
-)
+PERIOD_RE = re.compile(rf"^(?:{MONTHS_RU}) \d{{4}} — (?:(?:{MONTHS_RU}) \d{{4}}|настоящее время)(?: \d+ [^\n]+)?$")
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
 PHONE_RE = re.compile(r"\+?\d[\d\s()\-]{8,}\d")
 
@@ -71,7 +64,7 @@ def looks_like_rtf(raw: bytes) -> bool:
 
 def extract_text_from_txt(path: Path) -> str:
     raw = read_text_bytes(path)
-    for enc in ("utf-8", "utf-8-sig", "utf-16", "utf-16-le", "utf-16-be", "cp1251", "latin-1"):
+    for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
         try:
             return cleanup_extracted_text(raw.decode(enc))
         except Exception:
@@ -84,10 +77,7 @@ def extract_text_from_pdf(path: Path) -> str:
     pages: List[str] = []
     for page in reader.pages:
         try:
-            t = page.extract_text()
-            if t is None:
-                t = ""
-            pages.append(t)
+            pages.append(page.extract_text() or "")
         except Exception:
             pages.append("")
     return cleanup_extracted_text("\n".join(pages))
@@ -495,44 +485,6 @@ def parse_experience_section(section: str) -> List[Dict[str, Any]]:
     return companies
 
 
-# Patterns for the block after "Опыт работы — ..." until the next major section (HH.ru export). \n and \n\n (PDF/RTF may collapse).
-_EXP_END_PATTERNS = [
-    r"\n\nОбразование\n",
-    r"\n\nОбразование и курсы\n",
-    r"\n\nЗнание языков\n",
-    r"\n\nНавыки\n",
-    r"\n\nОбо мне\n",
-    r"\n\nМои ключевые навыки и достижения",
-    r"\n\nДополнительная информация",
-    r"\nОбразование\n",
-    r"\nЗнание языков\n",
-    r"\nНавыки\n",
-    r"\nОбо мне\n",
-    r"\nМои ключевые навыки и достижения",
-    r"\nДополнительная информация",
-]
-
-
-def _extract_experience_block(text: str) -> str:
-    """Extract experience section from HH.ru resume text. Tries multiple end markers."""
-    prefix = r"Опыт работы\s*[—-]\s*[^\n]+\n"
-    for end in _EXP_END_PATTERNS:
-        block = first_match(prefix + r"(.*?)" + end, text, re.S)
-        if block:
-            return block
-    # Fallback: take from "Опыт работы —" until next section header or end of text.
-    m = re.search(prefix + r"(.*)", text, re.S)
-    if m:
-        raw = m.group(1)
-        for end_marker in ("Образование", "Знание языков", "Навыки", "Обо мне", "Мои ключевые навыки", "Дополнительная информация"):
-            for sep in ("\n\n", "\n"):
-                idx = raw.find(sep + end_marker)
-                if idx != -1:
-                    return raw[:idx].strip()
-        return raw.strip()
-    return ""
-
-
 def parse_hh_resume(text: str) -> Dict[str, Any]:
     data = blank_schema()
     lines = as_nonempty_lines(text)
@@ -596,18 +548,8 @@ def parse_hh_resume(text: str) -> Dict[str, Any]:
     key_skills_block = first_match(r"Мои ключевые навыки и достижения:\n(.*)$", text, re.S)
     a["key_skills"] = [x.lstrip("-").strip() for x in as_nonempty_lines(key_skills_block)]
 
-    exp_block = _extract_experience_block(text)
+    exp_block = first_match(r"Опыт работы\s*[—-]\s*[^\n]+\n(.*?)\n\nОбразование\n", text, re.S)
     data["experience"] = parse_experience_section(exp_block)
-    if not data["experience"] and exp_block.strip():
-        raw_lines = [x.strip() for x in exp_block.splitlines() if x.strip()]
-        if raw_lines:
-            data["experience"] = [{
-                "company": "",
-                "period": "",
-                "role": "",
-                "projects": [{"name": "", "domain": "", "responsibilities": raw_lines, "technologies": ""}],
-                "additional_activity": {"title": "", "responsibilities": []},
-            }]
     return data
 
 
