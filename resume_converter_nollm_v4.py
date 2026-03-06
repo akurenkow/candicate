@@ -662,7 +662,9 @@ def main() -> None:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path = input_path.parent / f"resume_{ts}.txt"
     out_path.write_text(output_text, encoding="utf-8")
+    size_bytes = out_path.stat().st_size
     print(str(out_path))
+    print(f"{size_bytes} bytes ({size_bytes / 1024:.1f} KB)")
 
 
 if __name__ == "__main__":

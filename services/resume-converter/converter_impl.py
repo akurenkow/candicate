@@ -100,7 +100,7 @@ def rtf_to_text(raw_bytes: bytes) -> str:
     }
     specials = {
         "par": "\n", "line": "\n", "tab": "\t", "emdash": "—", "endash": "–",
-        "bullet": "•", "lquote": "'", "rquote": "'", "ldblquote": """, "rdblquote": """
+        "bullet": "•", "lquote": "\u2018", "rquote": "\u2019", "ldblquote": "\u201c", "rdblquote": "\u201d"
     }
 
     out: List[str] = []
@@ -224,16 +224,6 @@ def extract_text_from_doc(path: Path) -> str:
     raise RuntimeError("Не удалось извлечь текст из DOC")
 
 
-def extract_text_from_docx(path: Path) -> str:
-    if command_exists("soffice"):
-        with tempfile.TemporaryDirectory() as tmp:
-            rc, _, _ = run_cmd(["soffice", "--headless", "--convert-to", "txt:Text", "--outdir", tmp, str(path)], timeout=180)
-            txt_path = Path(tmp) / f"{path.stem}.txt"
-            if rc == 0 and txt_path.exists():
-                return extract_text_from_txt(txt_path)
-    raise RuntimeError("Не удалось извлечь текст из DOCX")
-
-
 def extract_text(path: Path) -> str:
     ext = path.suffix.lower()
     if ext in {".txt", ".md"}:
@@ -244,8 +234,6 @@ def extract_text(path: Path) -> str:
         return extract_text_from_rtf(path)
     if ext == ".doc":
         return extract_text_from_doc(path)
-    if ext == ".docx":
-        return extract_text_from_docx(path)
     raw = read_text_bytes(path)
     if looks_like_rtf(raw):
         return extract_text_from_rtf(path)
