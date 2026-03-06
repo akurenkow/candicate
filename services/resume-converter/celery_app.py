@@ -8,6 +8,7 @@ app = Celery(
     "resume_converter",
     broker=CELERY_BROKER_URL,
     backend=CELERY_BROKER_URL,
+    include=["tasks"],
 )
 app.conf.update(
     task_serializer="json",
