@@ -1,190 +1,267 @@
-# HEADCRACKER.AI
+# wulf-grivder-v4 -> HEADCRACKER.AI -> Кандидат
 
-RAG-секретарь кандидатов: загрузка резюме, векторный поиск, генерация ответов, контроль доступа.
-
-## Текущее состояние
-
-- **Реализовано**: FLOW-01 (Query Flow), FLOW-02 (Ingestion Flow), FLOW-03 (Match with Vacancy) — по архитектуре.
-- **Сервисы**: API Gateway (SYS-01), Conversation Manager (SYS-02), Retrieval (SYS-03), Generation (SYS-04), Embedding (SYS-05), Ingestion (SYS-06), Translation (SYS-15), Clearing (SYS-16), AuthZ (SYS-07), Telegram Bot (SYS-17); инфра: PostgreSQL, Qdrant, Redis, RabbitMQ, Prometheus, Grafana, Loki.
-- **Контракты**: см. `architecture/CONTRACT_REGISTRY.md`. Навигация по системам и потокам — `architecture/KNOWLEDGE_MAP.md`.
+**RAG-секретарь для кандидатов и HR:** загрузка резюме, векторный поиск, генерация ответов, сопоставление с вакансиями, контроль доступа.
 
 ---
 
-## Микросервисы
+## 📋 Оглавление
 
-### SYS-01: API Gateway
-Единая точка входа: аутентификация, валидация (Pydantic), rate limiting, маршрутизация к Conversation Manager, Ingestion (через RabbitMQ), AuthZ. REST/JSON; порт хоста 8001→8000 в контейнере.
-
-### SYS-02: Conversation Manager
-Оркестрация диалогов: история (PostgreSQL), координация Clearing → Retrieval → Generation, кэш ответов (Redis). Реализует FLOW-01 и FLOW-03. Зависит от Clearing, Retrieval, Generation, AuthZ, Translation, PostgreSQL, Redis.
-
-### SYS-03: Retrieval Service
-Гибридный поиск (векторный + полнотекстовый), ранжирование и фильтрация. Контракт: `search(query, filters, top_k)` → чанки. Использует Embedding Service, Qdrant; опционально Document Storage.
-
-### SYS-04: Generation Service
-Генерация ответов и уточняющих вопросов через LLM (Ollama). Контракты: `generate(prompt)`, `generate_clarification(original_query, documents, history)`. Не хранит данные.
-
-### SYS-05: Embedding Service
-Векторные представления текста; кэш в Redis. Контракты: `embed(text)`, `embed_batch(texts)`. Зависит от Ollama, Redis.
-
-### SYS-06: Ingestion Service
-Загрузка, чанкинг, индексация резюме. Семантический парсинг (company_name, date_range, project_name, project_domain, role), поблочный перевод (general + по компаниям), версионирование. Принимает команды через RabbitMQ (`upload_document`), пишет в PostgreSQL и Qdrant. Зависит от Embedding, Translation, Qdrant, PostgreSQL, RabbitMQ.
-
-### SYS-15: Translation Service
-LLM-перевод (Ollama), ru↔en; кэш в Redis. HTTP `POST /translate` и очереди `translation_tasks` / `translation_results`. Используется в индексации и в FLOW-01.
-
-### SYS-16: Clearing Service
-Нормализация текста (пробелы, мусор), валидация (profanity, prompt injection). `POST /preprocess` → normalized, validation_result (OK/BLOCK), reasons. Используется в FLOW-01 до поиска и генерации.
-
-### SYS-07: AuthZ Service
-Проверка прав доступа по ролям. `check_access(user_id, doc_id, action)`. PostgreSQL, Redis (кэш).
-
-### SYS-17: Telegram Bot
-Telegram-интерфейс для кандидатов и HR. Регистрация, роли (candidate, recruiter, admin), загрузка резюме, RAG-запросы, match-vacancy. Зависит от API Gateway, PostgreSQL.
-
-### Мониторинг (Prometheus, Grafana, Loki)
+- [Как это работает](#-как-это-работает)
+- [Развёртывание на VPS (Docker + build.py)](#-развёртывание-на-vps-docker--buildpy)
+- [Микросервисы и потоки данных](#-микросервисы-и-потоки-данных)
+- [Структура проекта](#-структура-проекта)
+- [Запуск и конфигурация](#-запуск-и-конфигурация)
+- [Клиентская интеграция и тесты](#-клиентская-интеграция-и-тесты)
 
 ---
 
-## Пользовательские сценарии
+## 🔄 Как это работает
 
-- **Вопрос по резюме (FLOW-01)**  
-  Пользователь отправляет вопрос через API Gateway → создаётся запись диалога, задача в RabbitMQ → Conversation Manager: нормализация (Clearing), определение языка и при необходимости перевод (Translation), проверка кэша ответов → при промахе: декомпозиция подвопросов, Retrieval (Embedding + Qdrant), при низком score — уточняющий диалог или эскалация → Generation (Ollama) → постобработка и обратный перевод → сохранение в историю и кэш, ответ клиенту.
+Система построена как набор **микросервисов** в Docker. Единая точка входа — **API Gateway** (порт 8001 на хосте). Все длительные операции (индексация резюме) идут через **RabbitMQ**; диалоги и RAG-запросы оркестрирует **Conversation Manager**.
 
-- **Загрузка резюме (FLOW-02)**  
-  Клиент отправляет файл на `POST /documents/upload` (multipart: file, owner_id [, external_id]) → API Gateway публикует команду в RabbitMQ → Ingestion Service: транзакция в PostgreSQL, удаление старой версии документа, разбиение на секции (general + experience по компаниям), поблочный перевод через Translation Service, чанкинг с метаданными, Embedding → запись в Qdrant и PostgreSQL, публикация события. Статус задачи: `GET /documents/tasks/{task_id}/status`.
+| Поток | Описание |
+|-------|----------|
+| **FLOW-01** | Пользователь задаёт вопрос → нормализация (Clearing) → перевод при необходимости (Translation) → кэш ответов (Redis) → при промахе: Retrieval (Embedding + Qdrant) → Generation (LLM) → обратный перевод → ответ. |
+| **FLOW-02** | Загрузка резюме: `POST /documents/upload` → очередь RabbitMQ → Ingestion: парсинг секций, поблочный перевод, чанкинг, эмбеддинги → Qdrant + PostgreSQL. |
+| **FLOW-03** | Match с вакансией: `POST /match-vacancy` → Conversation Manager → Retrieval по `vacancy_text` с фильтром `owner_id` → relevance_score, matched_snippets, опционально summary (Generation). |
+| **FLOW-04** | Сопроводительное письмо: `POST /cover-letter` → RAG по документам кандидата + генерация Executive Summary (PR-06). |
+| **FLOW-05** | Конвертация резюме: `POST /resume/convert` (файл или raw_text) → Resume Converter → структурированный текст для последующей загрузки (FLOW-02). |
+| **FLOW-06** | Telegram Bot: регистрация, роли (candidate/recruiter/admin), загрузка резюме, RAG, match, cover-letter через UI Client и API Gateway. |
 
-- **Соответствие вакансии (FLOW-03)**  
-  HR отправляет `POST /match-vacancy` с телом `{ owner_id, vacancy_text, summary }` → Conversation Manager захватывает in-process lock → Retrieval по vacancy_text с фильтром owner_id → расчёт relevance_score и matched_snippets → при summary=true генерация отчёта (Generation) → ответ `[{ owner_id, relevance_score, matched_snippets, summary? }]`.
-
----
-
-## Telegram Bot (SYS-17)
-
-Telegram-бот для кандидатов и HR. Вызов API Gateway (documents/upload, chat, match-vacancy).
-
-### Use cases
-
-| Роль | Сценарий |
-|------|----------|
-| **Кандидат** | Регистрация (`/start`), выбор языка, загрузка резюме (.txt до 1 МБ), генерация токена для связи с HR |
-| **Рекрутер** | Связь с кандидатом по токену (`/link`), вопросы по резюме кандидата (RAG), сопоставление резюме с вакансией (`/match`) |
-| **Админ** | Переключение режима кандидат ↔ рекрутер (`/switch`), доступ ко всем функциям в зависимости от режима |
-
-### Команды
-
-| Команда | Доступ | Описание |
-|---------|--------|----------|
-| `/start` | все | Регистрация, выбор языка (ru/en), главное меню |
-| `/lang [ru\|en]` | все | Смена языка интерфейса |
-| `/help` | все | Справка по роли |
-| `/update` | candidate, admin (candidate) | Запрос на загрузку резюме (.txt, макс. 1 МБ) |
-| `/hash` | candidate, admin (candidate) | Генерация токена для связи с HR |
-| `/link [токен]` | recruiter, admin (hr) | Связь с кандидатом по токену; без аргумента — ввод токена в следующем сообщении |
-| `/match` | recruiter, admin (hr) | Сопоставление резюме привязанного кандидата с вакансией. После вызова — отправка текста вакансии или файла (doc/docx/pdf/txt до 5 МБ) |
-| `/switch` | admin | Переключение режима candidate ↔ hr |
-| `/ping` | все | Ответ `pong` (проверка) |
-
-### Логика
-
-- **Загрузка резюме**: `/update` → ожидание файла .txt → `POST /documents/upload` (owner_id = telegram_id) → polling статуса задачи.
-- **RAG-вопросы (HR)**: HR, связанный с кандидатом (`/link`), отправляет текстовое сообщение → `POST /chat` (owner_id = dialog_owner_id) → polling ответа.
-- **Match-vacancy**: `/match` → текст или файл вакансии → `POST /match-vacancy` → вывод relevance_score и matched_snippets.
-- **Токены**: `/hash` создаёт одноразовый токен в таблице `hashes`. HR использует `/link <токен>` для привязки `dialog_owner_id` к кандидату.
-- **Разрешения**: `ALLOWED_UPLOAD_USER_IDS` — список telegram_id, допущенных к загрузке резюме. Роли candidate/recruiter/admin задаются вручную в БД или через хэш-привязку.
-
-### Конфигурация
-
-- `TELEGRAM_BOT_TOKEN` — токен бота (обязательно).
-- `BASE_API_URL` — URL API Gateway (например `http://api-gateway:8000`).
-- `ALLOWED_UPLOAD_USER_IDS` — telegram_id через запятую для доступа candidate.
-- `POSTGRES_*` — подключение к PostgreSQL.
+**Инфраструктура:** PostgreSQL (история, документы, политики, users), Qdrant (векторный поиск), Redis (кэш эмбеддингов и ответов), RabbitMQ (очереди), Prometheus/Grafana/Loki (метрики и логи), сквозной `trace_id` (X-Request-ID).
 
 ---
 
-## Утилита build.py
+## 🚀 Развёртывание на VPS (Docker + build.py)
 
-Сборка Docker-образов микросервисов (контекст — корень проекта, `Dockerfile.service`, копируются `shared/` и `services/<SVC>`).
+Система **рассчитана на запуск на VPS в Docker**. Сборка и запуск выполняются через утилиту **`build.py`** в корне проекта.
 
-- **Команды**: `base` — базовый образ; `service <name>` — один сервис; `all` — все сервисы; `list` — список сервисов; `up` — `docker-compose up -d` (опция `--gpu` для docker-compose.gpu.yml).
-- **Пересборка**: `rebuild base | service <name> | all` — удаление старых образов, сборка, затем автоматически: `docker-compose up -d`, миграции PostgreSQL (`alembic upgrade head`). Опции: `--no-cache`, `--pull`, `--prune`, `--gpu`, `--erase` (очистка Redis, Qdrant, пользовательских таблиц PostgreSQL), `--run-tests` (pytest unit + e2e с покрытием), `--render-png` (конвертация `*.mmd` из корня в `diagrams/*.png` через mermaid-cli).
+### Что делает build.py
 
-Примеры:
+- Собирает **базовый образ** (`Dockerfile.base`) и образы **микросервисов** (контекст — корень проекта; в образ копируются `shared/` и `services/<SVC>`, используется общий `Dockerfile.service`).
+- После **пересборки** (`rebuild`) автоматически: поднимает контейнеры (`docker-compose up -d`), применяет миграции PostgreSQL (`alembic upgrade head`), при опциях — очищает данные, запускает тесты, рендерит Mermaid-диаграммы в PNG.
+- Учитывает наличие валидного LLM API (OpenAI/DeepSeek/Gemini): при валидном ключе подключается `lightweight-embeddings`, иначе — Ollama + `embedding-service`.
+- Генерирует **Nginx IP whitelist** из `.env` (`IP_ADDR_WHITELIST`) для ограничения доступа на VPS.
+
+### Основные команды
+
 ```bash
+# Список сервисов
 python build.py list
+
+# Сборка базового образа и одного сервиса
+python build.py base
 python build.py service api-gateway
-python build.py rebuild all --no-cache --render-png
+
+# Сборка всех сервисов
+python build.py all
+
+# Пересборка всего с нуля (без кэша), запуск контейнеров, миграции
+python build.py rebuild all --no-cache
+
+# Пересборка + очистка Redis/Qdrant/PostgreSQL + тесты + рендер диаграмм
+python build.py rebuild all --erase-db --run-tests --render-png
+
+# Только поднять контейнеры (без пересборки)
+python build.py up
+
+# С GPU (Ollama на GPU при fallback на local)
 python build.py up --gpu
-python build.py rebuild all --erase --run-tests --render-png
+```
+
+### Опции rebuild
+
+| Опция | Описание |
+|-------|----------|
+| `--no-cache` | Сборка без кэша Docker |
+| `--pull` | Подтянуть свежие базовые образы |
+| `--prune` | Очистить неиспользуемые ресурсы Docker |
+| `--gpu` | Подключить `docker-compose.gpu.yml` |
+| `--erase-db` | Очистить Redis, Qdrant, пользовательские таблицы PostgreSQL |
+| `--total-erase` | Полная очистка: контейнеры, образы проекта, build cache + erase-db |
+| `--run-tests` | Запустить тесты через контейнер test-runner |
+| `--render-png` | Конвертировать `*.mmd` из корня в `diagrams/*.png` (mermaid-cli) |
+
+---
+
+## 🧩 Микросервисы и потоки данных
+
+### Краткая таблица сервисов
+
+| Сервис | Назначение | Порт (хост→контейнер) |
+|--------|------------|------------------------|
+| **SYS-01 API Gateway** | Единая точка входа: аутентификация, валидация (Pydantic), rate limiting, маршрутизация к Conversation Manager, Ingestion (RabbitMQ), AuthZ. REST/JSON. | 8001→8000 |
+| **SYS-02 Conversation Manager** | Оркестрация диалогов: история (PostgreSQL), координация Clearing → Retrieval → Generation, кэш ответов (Redis). Реализует FLOW-01, FLOW-03, FLOW-04. | 8002→8000 |
+| **SYS-03 Retrieval Service** | Гибридный поиск (векторный + полнотекстовый), ранжирование. Контракт: `search(query, filters, top_k)` → чанки. Embedding Service + Qdrant. | 8003→8000 |
+| **SYS-04 Generation Service** | Генерация ответов и уточняющих вопросов через LLM (Ollama/OpenAI/DeepSeek/Gemini). `generate(prompt)`, `generate_clarification(...)`. | 8004→8000 |
+| **SYS-05 Embedding Service** | Векторные представления текста; кэш в Redis. `embed(text)`, `embed_batch(texts)`. Ollama или lightweight-embeddings (bge-m3). | 8005→8000 |
+| **SYS-06 Ingestion Service** | Загрузка, чанкинг, индексация резюме. Семантический парсинг, поблочный перевод, версионирование. Очередь RabbitMQ → PostgreSQL + Qdrant. | — |
+| **SYS-15 Translation Service** | LLM-перевод ru↔en; кэш Redis. HTTP `POST /translate`, очереди. Используется в индексации и FLOW-01. | 8008→8000 |
+| **SYS-16 Clearing Service** | Нормализация текста, валидация (profanity, prompt injection). `POST /preprocess` → normalized, validation_result. | — |
+| **SYS-07 AuthZ Service** | Проверка прав: `check_access(user_id, doc_id, action)`. PostgreSQL, Redis (кэш). | 8007→8000 |
+| **SYS-17 Telegram Bot** | Интерфейс для кандидатов и HR: регистрация, роли, загрузка резюме, RAG, match-vacancy, cover-letter. Зависит от API Gateway, UI Client, PostgreSQL. | — |
+| **SYS-18 Resume Converter** | Конвертация резюме (hh.ru и др.) в канонический структурированный текст. `POST /convert`, `POST /convert/raw`. Celery + RabbitMQ или синхронно. | — |
+
+### Инфраструктура
+
+- **PostgreSQL** — история диалогов, документы, чанки, политики, users (Telegram), hashes.
+- **Qdrant** — векторное хранилище для поиска по эмбеддингам.
+- **Redis** — кэш эмбеддингов, кэш ответов RAG, сессии.
+- **RabbitMQ** — очереди: загрузка документов, конвертация резюме, переводы.
+- **Prometheus / Grafana / Loki** — метрики и логи.
+- **Nginx** — единая точка входа на VPS (порт 80), IP whitelist из `build.py generate-nginx-whitelist`.
+
+### Схема потоков (упрощённо)
+
+```
+[Клиент] → [Nginx] → [API Gateway] → [Conversation Manager] → Clearing → Retrieval → Generation
+                ↓                           ↓
+           [RabbitMQ] ← upload_document      Redis (кэш ответов)
+                ↓
+           [Ingestion] → Translation → Embedding → Qdrant + PostgreSQL
 ```
 
 ---
 
-## Запуск
+## 📁 Структура проекта
+
+### Модули и каталоги
+
+```
+wulf_grinder_arch/
+├── build.py                 # Сборка образов и запуск (base, service, all, rebuild, up)
+├── docker-compose.yml       # Базовый состав (инфра + сервисы)
+├── docker-compose.ollama.yml / docker-compose.gpu.yml / docker-compose.vendor-embeddings.yml
+├── Dockerfile.base          # Базовый образ
+├── Dockerfile.service       # Общий Dockerfile для сервисов (shared + services/<SVC>)
+│
+├── architecture/           # Архитектурные индексы (навигация, контракты, промпты)
+│   ├── KNOWLEDGE_MAP.md     # Системы (SYS-*), потоки (FLOW-*), клиентская интеграция
+│   ├── CONTRACT_REGISTRY.md # Контракты между модулями (CTR-*)
+│   └── PROMPT_INDEX_MAP.md  # Индекс промптов (PR-*)
+│
+├── services/                # Микросервисы (каждая папка — один сервис)
+│   ├── api-gateway/         # SYS-01: маршрутизация, валидация, прокси
+│   ├── conversation-manager/ # SYS-02: оркестрация RAG, история, match-vacancy, cover-letter
+│   ├── retrieval-service/  # SYS-03: поиск по Qdrant + Embedding
+│   ├── generation-service/ # SYS-04: LLM-генерация
+│   ├── embedding-service/  # SYS-05: эмбеддинги (Ollama)
+│   ├── lightweight-embeddings/ # Альтернатива SYS-05: bge-m3 (vendor, без GPU)
+│   ├── ingestion-service/  # SYS-06: загрузка и индексация резюме
+│   ├── translation-service/ # SYS-15: перевод ru↔en
+│   ├── clearing-service/   # SYS-16: нормализация и валидация
+│   ├── authz-service/      # SYS-07: проверка доступа
+│   ├── telegram-bot/       # SYS-17: Telegram-интерфейс
+│   ├── resume-converter/   # SYS-18: конвертация резюме в структурированный текст
+│   ├── ui-client/          # BFF для бота: users, hashes, прокси к API Gateway
+│   └── test-runner/        # Контейнер для запуска тестов
+│
+├── shared/                  # Общий код, подключаемый в образы сервисов
+│   ├── tracing.py          # trace_id, структурированные логи (CTR-29)
+│   ├── telemetry.py        # Метрики, трейсинг
+│   └── company_normalize.py
+│
+├── migrations/              # Alembic: миграции PostgreSQL
+├── scripts/                 # initdb, compose-up, check_llm_vendor, и др.
+├── nginx/                   # Конфиг Nginx, conf.d/allow_ips.conf (генерируется build.py)
+├── monitoring/              # Prometheus, Loki, Grafana
+├── prompts/                 # Тексты промптов (перевод, структура резюме и т.д.)
+├── tests/                   # E2E и диагностика
+├── docs/                    # Доп. документация
+├── diagrams/                # PNG из *.mmd (после build.py rebuild … --render-png)
+├── *.mmd                    # Mermaid-диаграммы (SYSTEMS, FLOW-01, FLOW-02, FLOW-03)
+└── external_llm/            # Адаптеры внешних LLM (копируются в образы)
+```
+
+### Назначение ключевых модулей
+
+- **architecture/** — единый источник правды по системам, потокам и контрактам; не описывает детали реализации.
+- **services/** — каждый подкаталог соответствует одному сервису; сборка через `Dockerfile.service` с `SVC=<name>`; общий код в **shared/**.
+- **build.py** — единственная точка входа для сборки и запуска на VPS: образы, compose, миграции, опционально тесты и диаграммы.
+
+---
+
+## ⚙️ Запуск и конфигурация
+
+### Быстрый старт
 
 ```bash
-# Рекомендуется: скрипт проверяет API и автоматически решает, нужен ли Ollama
+# Рекомендуется: скрипт проверяет API и решает, нужен ли Ollama
 ./scripts/compose-up.sh -d              # Linux/Mac
 .\scripts\compose-up.ps1 -Detached     # Windows PowerShell
 
-# С GPU (Ollama на GPU при fallback на local):
+# С GPU
 ./scripts/compose-up.sh -d --gpu
 .\scripts\compose-up.ps1 -Detached -Gpu
 
-# Вручную (без проверки API):
-docker compose up -d                           # только vendor (ollama не в проекте)
-docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d   # с Ollama
-
-# API (хост): http://localhost:8001
-# Загрузка резюме: POST http://localhost:8001/documents/upload (multipart: file, owner_id [, external_id])
-# Статус задачи: GET http://localhost:8001/documents/tasks/{task_id}/status
+# Или через build.py (после сборки)
+python build.py up
+python build.py up --gpu
 ```
 
-Порты сервисов — в `docker-compose.yml` (API Gateway 8001→8000, Conversation Manager 8002→8000, Retrieval 8003→8000, Generation 8004→8000, Embedding 8005→8000, AuthZ 8007→8000, Translation 8008→8000).
+Внешний API (хост): **http://localhost:8001** (или через Nginx на VPS на порту 80).
 
-### Выбор LLM-провайдера
+### Примеры запросов к API
+
+```bash
+# Загрузка резюме (FLOW-02)
+curl -X POST http://localhost:8001/documents/upload \
+  -F "file=@resume.txt" -F "owner_id=user-123"
+
+# Статус задачи индексации
+curl http://localhost:8001/documents/tasks/{task_id}/status
+
+# Соответствие вакансии (FLOW-03)
+curl -X POST http://localhost:8001/match-vacancy \
+  -H "Content-Type: application/json" \
+  -d '{"owner_id": "user-123", "vacancy_text": "Ищем Python-разработчика...", "summary": true}'
+
+# Сопроводительное письмо (FLOW-04)
+curl -X POST http://localhost:8001/cover-letter \
+  -H "Content-Type: application/json" \
+  -d '{"owner_id": "user-123", "vacancy_text": "Описание вакансии..."}'
+```
+
+### Выбор LLM и эмбеддингов
 
 | Режим | Описание |
 |-------|----------|
-| `LLM_PROVIDER=local` | Только Ollama. Запуск: `docker-compose --profile local up -d` |
-| `LLM_PROVIDER=openai` | OpenAI API. `OPENAI_API_KEY` обязателен. При невалидном ключе → Ollama |
-| `LLM_PROVIDER=deepseek` | DeepSeek API. `DEEPSEEK_API_KEY` обязателен. При невалидном ключе → Ollama |
-| `LLM_PROVIDER=gemini` | Google Gemini API. `GEMINI_API_KEY` обязателен. При невалидном ключе → Ollama |
-| `LLM_PROVIDER=auto` | `FAVORITE_LLM_PROVIDER` (openai/deepseek/gemini) сначала; при отсутствии ключей → Ollama |
+| `LLM_PROVIDER=local` | Только Ollama (`docker-compose --profile local`) |
+| `LLM_PROVIDER=openai` | OpenAI API (`OPENAI_API_KEY`) |
+| `LLM_PROVIDER=deepseek` | DeepSeek API (`DEEPSEEK_API_KEY`) |
+| `LLM_PROVIDER=gemini` | Google Gemini (`GEMINI_API_KEY`) |
+| `LLM_PROVIDER=auto` | Сначала `FAVORITE_LLM_PROVIDER`; при отсутствии ключей → Ollama |
 
-**Embeddings:**
-- **local**: `rag-embedding-service` + Ollama (модель `OLLAMA_EMBED_MODEL`)
-- **vendor (OpenAI/DeepSeek/Gemini)**: `lightweight-embeddings` с моделью `bge-m3` (1024-dim, multilingual)
-  - DeepSeek не имеет собственного embedding API → для него используется `lightweight-embeddings`
-  - Основано на https://github.com/lh0x00/lightweight-embeddings
-  - Модель настраивается через `LIGHTWEIGHT_EMBED_MODEL` в `.env`
+**Эмбеддинги:** при валидном vendor API используется **lightweight-embeddings** (bge-m3, 1024-dim); иначе — **embedding-service** с Ollama. На VPS без GPU задайте ключ в `.env` и используйте `LLM_PROVIDER=auto` или имя провайдера.
 
-Для cloud/VPS без GPU: задайте `OPENAI_API_KEY`, `DEEPSEEK_API_KEY` или `GEMINI_API_KEY` в `.env`, `LLM_PROVIDER=auto` или имя провайдера, запускайте `docker-compose up -d` (без `--profile local` — Ollama не стартует).
+---
 
-**Важно при пересборке lightweight-embeddings:**
-- Если модуль `sentence_transformers` не найден, выполните полную очистку:
-  ```bash
-  python build.py rebuild all --erase --gpu
-  ```
-- Это остановит контейнеры, удалит все образы проекта, очистит build cache и пересоберёт с нуля
-- **Медленная загрузка PyTorch (из РФ):** по умолчанию torch ставится из PyPI (таймаут 10 мин). Если всё равно не успевает — скачайте CPU wheel вручную ([torch 2.6.0+cpu cp311 linux](https://download.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp311-cp311-linux_x86_64.whl)), положите в `services/lightweight-embeddings/wheels/`, в `.env` задайте `USE_OFFLINE_TORCH=1` и пересоберите образ
+## 🔗 Клиентская интеграция и тесты
 
-## Клиентская интеграция
+- **Базовый URL API:** `http://localhost:8001` (или ваш VPS).
+- **CORS:** в api-gateway задаётся через `CORS_ORIGINS`. Пусто или `*` — все origins без credentials.
+- **Ошибка "Failed to fetch / URL scheme must be http or https":** задайте базовый URL API явно во фронте (например `VITE_API_URL` / `NEXT_PUBLIC_API_URL`) и не вызывайте fetch при пустом значении.
 
-- Базовый URL API (локально): `http://localhost:8001`.
-- CORS: в api-gateway задаётся через `CORS_ORIGINS`. Пусто или `*` — все origins без credentials.
-- При "Failed to fetch / URL scheme must be http or https": задать базовый URL API явно во фронте (например `VITE_API_URL`/`NEXT_PUBLIC_API_URL` = `http://localhost:8001`) и не вызывать fetch при пустом значении.
+### Тесты
 
-## Тесты
+```bash
+# E2E загрузки (FLOW-02)
+pytest tests/test_e2e_ingestion_flow.py -v -s
 
-- E2E загрузки (FLOW-02): `pytest tests/test_e2e_ingestion_flow.py -v -s`. Перед запуском: миграция `scripts/initdb/02_add_chunks_metadata.sql`, подняты postgres, qdrant, embedding-service, translation-service. Подробно: `tests/README.md`, `tests/QUICK_START.md`.
-- RAG pipeline: `tests/test_e2e_rag_pipeline.py`.
+# RAG pipeline
+pytest tests/test_e2e_rag_pipeline.py -v
 
-## Архитектура
+# Через build.py (контейнер test-runner)
+python build.py rebuild all --run-tests
+```
 
-- Системы и потоки: `architecture/KNOWLEDGE_MAP.md`.
-- Контракты модулей: `architecture/CONTRACT_REGISTRY.md`.
-- Индекс промптов: `architecture/PROMPT_INDEX_MAP.md`.
-- Диаграммы: `SYSTEMS.mmd`, `FLOW-01.mmd`, `FLOW-02.mmd` (Mermaid).
+Подробнее: `tests/README.md`, `tests/QUICK_START.md`.
 
-Технологии: Python 3.11+, Ollama, Docker Compose, PostgreSQL, Qdrant, Redis, RabbitMQ, Prometheus/Grafana/Loki. Сквозной trace_id (X-Request-ID), структурированные логи (CTR-29), сборка через `Dockerfile.service` и `shared/tracing.py`.
+### Архитектура и диаграммы
+
+- Системы и потоки: **`architecture/KNOWLEDGE_MAP.md`**
+- Контракты модулей: **`architecture/CONTRACT_REGISTRY.md`**
+- Индекс промптов: **`architecture/PROMPT_INDEX_MAP.md`**
+- Mermaid: `SYSTEMS.mmd`, `FLOW-01.mmd`, `FLOW-02.mmd`, `FLOW-03.mmd` → PNG в `diagrams/` через `build.py … --render-png`
+
+**Стек:** Python 3.11+, Ollama / OpenAI / DeepSeek / Gemini, Docker Compose, PostgreSQL, Qdrant, Redis, RabbitMQ, Prometheus/Grafana/Loki. Сквозной `trace_id` (X-Request-ID), структурированные логи (CTR-29), сборка через `Dockerfile.service` и `shared/tracing.py`.
