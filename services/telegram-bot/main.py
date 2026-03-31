@@ -6,6 +6,7 @@ import io
 import logging
 import os
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -22,6 +23,7 @@ from telegram import (
     ReplyKeyboardMarkup,
     Update,
 )
+from telegram.error import NetworkError, TimedOut
 from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application,
@@ -1718,44 +1720,72 @@ def main() -> None:
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is required")
+
     ui_url = os.getenv("UI_CLIENT_URL", "")
-    logger.info(
-        "Starting telegram-bot (thin client): UI_CLIENT_URL=%s",
-        ui_url or "(empty)",
-    )
+    logger.info("Starting telegram-bot (thin client): UI_CLIENT_URL=%s", ui_url or "(empty)")
+
     read_timeout = float(os.getenv("TELEGRAM_READ_TIMEOUT", "60.0"))
     write_timeout = float(os.getenv("TELEGRAM_WRITE_TIMEOUT", "30.0"))
-    connect_timeout = float(os.getenv("TELEGRAM_CONNECT_TIMEOUT", "10.0"))
-    request = HTTPXRequest(
-        read_timeout=read_timeout,
-        write_timeout=write_timeout,
-        connect_timeout=connect_timeout,
+
+    # NOTE: ошибка в трейсе случается именно на connect_timeout при первом `get_me()`.
+    # Дефолт был слишком агрессивный для некоторых сетей/контейнеров.
+    connect_timeout = float(os.getenv("TELEGRAM_CONNECT_TIMEOUT", "30.0"))
+    start_retries = int(os.getenv("TELEGRAM_START_RETRIES", "5"))
+    start_retry_delay_s = float(os.getenv("TELEGRAM_START_RETRY_DELAY", "2.0"))
+
+    logger.info(
+        "telegram-bot timeouts: connect=%ss read=%ss write=%ss (HTTP_PROXY=%s HTTPS_PROXY=%s NO_PROXY=%s)",
+        connect_timeout,
+        read_timeout,
+        write_timeout,
+        bool(os.getenv("HTTP_PROXY")),
+        bool(os.getenv("HTTPS_PROXY")),
+        bool(os.getenv("NO_PROXY")),
     )
-    bot = _TrackingBot(token=token, request=request)
-    app = (
-        Application.builder()
-        .bot(bot)
-        .post_init(post_init)
-        .post_shutdown(post_shutdown)
-        .build()
-    )
-    app.add_handler(MessageHandler(filters.ALL, _track_incoming_message), group=-1)
-    app.add_handler(CommandHandler("start", start_handler))
-    app.add_handler(CommandHandler("help", help_handler))
-    app.add_handler(CommandHandler("link", link_handler))
-    app.add_handler(CommandHandler("hash", hash_handler))
-    app.add_handler(CommandHandler("lang", lang_handler))
-    app.add_handler(CommandHandler("switch", switch_handler))
-    app.add_handler(CommandHandler("match", match_handler))
-    app.add_handler(CommandHandler("letter", cover_letter_handler))
-    app.add_handler(CommandHandler("convert", convert_handler))
-    app.add_handler(CommandHandler("update", update_handler))
-    app.add_handler(CommandHandler("ping", ping_handler))
-    app.add_handler(CallbackQueryHandler(lang_callback, pattern="^lang:"))
-    app.add_handler(MessageHandler(filters.Document.ALL, document_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-    logger.info("telegram-bot started, polling")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    def _build_app() -> Application:
+        request = HTTPXRequest(
+            read_timeout=read_timeout,
+            write_timeout=write_timeout,
+            connect_timeout=connect_timeout,
+        )
+        bot = _TrackingBot(token=token, request=request)
+        app = (
+            Application.builder()
+            .bot(bot)
+            .post_init(post_init)
+            .post_shutdown(post_shutdown)
+            .build()
+        )
+        app.add_handler(MessageHandler(filters.ALL, _track_incoming_message), group=-1)
+        app.add_handler(CommandHandler("start", start_handler))
+        app.add_handler(CommandHandler("help", help_handler))
+        app.add_handler(CommandHandler("link", link_handler))
+        app.add_handler(CommandHandler("hash", hash_handler))
+        app.add_handler(CommandHandler("lang", lang_handler))
+        app.add_handler(CommandHandler("switch", switch_handler))
+        app.add_handler(CommandHandler("match", match_handler))
+        app.add_handler(CommandHandler("letter", cover_letter_handler))
+        app.add_handler(CommandHandler("convert", convert_handler))
+        app.add_handler(CommandHandler("update", update_handler))
+        app.add_handler(CommandHandler("ping", ping_handler))
+        app.add_handler(CallbackQueryHandler(lang_callback, pattern="^lang:"))
+        app.add_handler(MessageHandler(filters.Document.ALL, document_handler))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+        return app
+
+    for attempt in range(1, start_retries + 1):
+        try:
+            logger.info("telegram-bot started, polling (attempt %s/%s)", attempt, start_retries)
+            _build_app().run_polling(allowed_updates=Update.ALL_TYPES)
+            return
+        except (TimedOut, NetworkError, httpx.ConnectTimeout, httpx.TimeoutException) as e:
+            if attempt >= start_retries:
+                logger.exception("telegram-bot startup failed after %s attempts", start_retries)
+                raise
+            delay = start_retry_delay_s * (2 ** (attempt - 1))
+            logger.warning("telegram-bot startup failed (%s). Retrying in %.1fs...", e, delay)
+            time.sleep(delay)
 
 
 if __name__ == "__main__":
