@@ -1743,49 +1743,67 @@ def main() -> None:
         bool(os.getenv("NO_PROXY")),
     )
 
-    def _build_app() -> Application:
-        request = HTTPXRequest(
-            read_timeout=read_timeout,
-            write_timeout=write_timeout,
-            connect_timeout=connect_timeout,
-        )
-        bot = _TrackingBot(token=token, request=request)
-        app = (
-            Application.builder()
-            .bot(bot)
-            .post_init(post_init)
-            .post_shutdown(post_shutdown)
-            .build()
-        )
-        app.add_handler(MessageHandler(filters.ALL, _track_incoming_message), group=-1)
-        app.add_handler(CommandHandler("start", start_handler))
-        app.add_handler(CommandHandler("help", help_handler))
-        app.add_handler(CommandHandler("link", link_handler))
-        app.add_handler(CommandHandler("hash", hash_handler))
-        app.add_handler(CommandHandler("lang", lang_handler))
-        app.add_handler(CommandHandler("switch", switch_handler))
-        app.add_handler(CommandHandler("match", match_handler))
-        app.add_handler(CommandHandler("letter", cover_letter_handler))
-        app.add_handler(CommandHandler("convert", convert_handler))
-        app.add_handler(CommandHandler("update", update_handler))
-        app.add_handler(CommandHandler("ping", ping_handler))
-        app.add_handler(CallbackQueryHandler(lang_callback, pattern="^lang:"))
-        app.add_handler(MessageHandler(filters.Document.ALL, document_handler))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-        return app
+    # ВАЖНО: не делаем ретраи через повторный `run_polling()`,
+    # т.к. telegram/ext внутри закрывает event loop при исключении и при повторе получаем
+    # RuntimeError: Event loop is closed.
+    request = HTTPXRequest(
+        read_timeout=read_timeout,
+        write_timeout=write_timeout,
+        connect_timeout=connect_timeout,
+    )
+    bot = _TrackingBot(token=token, request=request)
+    app = (
+        Application.builder()
+        .bot(bot)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
+        .build()
+    )
+
+    app.add_handler(MessageHandler(filters.ALL, _track_incoming_message), group=-1)
+    app.add_handler(CommandHandler("start", start_handler))
+    app.add_handler(CommandHandler("help", help_handler))
+    app.add_handler(CommandHandler("link", link_handler))
+    app.add_handler(CommandHandler("hash", hash_handler))
+    app.add_handler(CommandHandler("lang", lang_handler))
+    app.add_handler(CommandHandler("switch", switch_handler))
+    app.add_handler(CommandHandler("match", match_handler))
+    app.add_handler(CommandHandler("letter", cover_letter_handler))
+    app.add_handler(CommandHandler("convert", convert_handler))
+    app.add_handler(CommandHandler("update", update_handler))
+    app.add_handler(CommandHandler("ping", ping_handler))
+    app.add_handler(CallbackQueryHandler(lang_callback, pattern="^lang:"))
+    app.add_handler(MessageHandler(filters.Document.ALL, document_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+
+    async def _preflight_get_me() -> None:
+        # Простой запрос к Telegram API, чтобы fail fast по сети/доступности.
+        await bot.get_me()
+
+    def _run_coro_sync(coro) -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(coro)
+        finally:
+            loop.close()
+            asyncio.set_event_loop(None)
 
     for attempt in range(1, start_retries + 1):
         try:
-            logger.info("telegram-bot started, polling (attempt %s/%s)", attempt, start_retries)
-            _build_app().run_polling(allowed_updates=Update.ALL_TYPES)
-            return
+            logger.info("telegram-bot preflight get_me (attempt %s/%s)", attempt, start_retries)
+            _run_coro_sync(_preflight_get_me())
+            break
         except (TimedOut, NetworkError, httpx.ConnectTimeout, httpx.TimeoutException) as e:
             if attempt >= start_retries:
-                logger.exception("telegram-bot startup failed after %s attempts", start_retries)
+                logger.exception("telegram-bot preflight failed after %s attempts", start_retries)
                 raise
             delay = start_retry_delay_s * (2 ** (attempt - 1))
-            logger.warning("telegram-bot startup failed (%s). Retrying in %.1fs...", e, delay)
+            logger.warning("telegram-bot preflight failed (%s). Retrying in %.1fs...", e, delay)
             time.sleep(delay)
+
+    logger.info("telegram-bot started, polling")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
