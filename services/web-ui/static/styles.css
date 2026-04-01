@@ -17,7 +17,16 @@ body {
   color: var(--text);
 }
 
-.wrap { max-width: 1200px; margin: 0 auto; padding: 18px; }
+.bg {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.wrap { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 18px; }
 .header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .brandIcon { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,0.06); object-fit: cover; }
@@ -83,6 +92,19 @@ body {
 .msg { margin: 0 0 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); }
 .msg.user { background: rgba(106,228,255,0.10); border-color: rgba(106,228,255,0.20); }
 .msg.assistant { background: rgba(255,255,255,0.06); }
+.msg.thinking { color: var(--muted); font-style: italic; }
+.dots { display: inline-block; min-width: 18px; }
+.dots::after {
+  content: "...";
+  animation: dots 1.1s infinite steps(4, end);
+}
+@keyframes dots {
+  0% { content: ""; }
+  25% { content: "."; }
+  50% { content: ".."; }
+  75% { content: "..."; }
+  100% { content: ""; }
+}
 .footer { margin-top: 14px; color: var(--muted); font-size: 12px; }
 .hint { display: flex; gap: 10px; align-items: center; }
 

@@ -41,6 +41,9 @@ els.bffUrl.addEventListener("change", () => {
 
 const bff = () => (els.bffUrl.value.trim() || defaultBff).replace(/\/$/, "");
 
+let chatInFlight = false;
+let thinkingEl = null;
+
 async function api(path, opts = {}) {
   const url = `${bff()}${path}`;
   const res = await fetch(url, {
@@ -67,6 +70,29 @@ function pushMsg(role, text) {
   div.textContent = text;
   els.chatLog.appendChild(div);
   els.chatLog.scrollTop = els.chatLog.scrollHeight;
+}
+
+function pushThinking() {
+  if (thinkingEl) return thinkingEl;
+  const div = document.createElement("div");
+  div.className = "msg assistant thinking";
+  div.innerHTML = `Думаю<span class="dots"></span>`;
+  els.chatLog.appendChild(div);
+  els.chatLog.scrollTop = els.chatLog.scrollHeight;
+  thinkingEl = div;
+  return div;
+}
+
+function popThinking() {
+  if (!thinkingEl) return;
+  thinkingEl.remove();
+  thinkingEl = null;
+}
+
+function setChatLocked(locked) {
+  chatInFlight = locked;
+  els.btnSend.disabled = locked;
+  els.chatInput.disabled = locked;
 }
 
 async function ensureSession() {
@@ -149,21 +175,42 @@ async function pollMessage(messageId) {
   throw new Error("timeout");
 }
 
-els.btnSend.addEventListener("click", async () => {
+async function sendChat() {
+  if (chatInFlight) return;
   await ensureSession();
   const q = els.chatInput.value.trim();
   if (!q) return;
   els.chatInput.value = "";
   pushMsg("user", q);
-  const enq = await api("/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: q }),
-  });
-  const messageId = enq.message_id;
-  const st = await pollMessage(messageId);
-  const text = st.assistant_text_translated || st.assistant_text || "(empty)";
-  pushMsg("assistant", text);
+  setChatLocked(true);
+  pushThinking();
+  try {
+    const enq = await api("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: q }),
+    });
+    const messageId = enq.message_id;
+    const st = await pollMessage(messageId);
+    const text = st.assistant_text_translated || st.assistant_text || "(empty)";
+    popThinking();
+    pushMsg("assistant", text);
+  } catch (e) {
+    popThinking();
+    pushMsg("assistant", `Ошибка: ${e && e.message ? e.message : String(e)}`);
+  } finally {
+    setChatLocked(false);
+    els.chatInput.focus();
+  }
+}
+
+els.btnSend.addEventListener("click", sendChat);
+
+els.chatInput.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+  e.preventDefault();
+  sendChat();
 });
 
 window.addEventListener("load", async () => {
