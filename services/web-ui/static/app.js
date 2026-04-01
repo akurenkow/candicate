@@ -24,7 +24,8 @@ const guessBffFromOrigin = () => {
   // Avoid IPv6 localhost (::1) issues on Windows + Docker port publishing.
   if (location.hostname === "localhost") return "http://127.0.0.1:8010";
   if (location.hostname === "127.0.0.1") return "http://127.0.0.1:8010";
-  return `http://${location.hostname}:8010`;
+  // On VPS behind Nginx we serve BFF on same origin via /bff (no CORS).
+  return `${location.origin}/bff`;
 };
 
 const defaultBff = localStorage.getItem("bffUrl") || guessBffFromOrigin();

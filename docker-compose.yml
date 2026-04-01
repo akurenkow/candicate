@@ -35,6 +35,8 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
     depends_on:
       - api-gateway
+      - web-ui
+      - web-bff
     logging:
       driver: "json-file"
       options:
@@ -989,6 +991,7 @@ services:
     restart: unless-stopped
     networks:
       - backend
+    # For production behind nginx you can remove this port mapping.
     ports:
       - "8010:8000"
     environment:
@@ -999,6 +1002,9 @@ services:
       SESSION_MAX_AGE_SEC: "172800"
       WEB_BFF_UPLOAD_TOKEN: ${WEB_BFF_UPLOAD_TOKEN:-dev-upload-token}
       CORS_ORIGINS: "http://localhost:3000,http://localhost:8010"
+      # Allow credentials (cookie session) for any HTTP origin in MVP.
+      # Tighten in production to your real domains, e.g. ^https?://candidate\\.ferus\\.tech$
+      CORS_ORIGIN_REGEX: ${WEB_BFF_CORS_ORIGIN_REGEX:-.*}
       COOKIE_SECURE: "false"
     depends_on:
       api-gateway:
@@ -1028,6 +1034,7 @@ services:
     restart: unless-stopped
     networks:
       - backend
+    # For production behind nginx you can remove this port mapping.
     ports:
       - "3000:8000"
     environment:
