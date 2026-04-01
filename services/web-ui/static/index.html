@@ -5,11 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Кандидат — Web UI (MVP)</title>
     <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="icon" type="image/png" href="/static/brand.png" />
+    <link rel="apple-touch-icon" href="/static/brand.png" />
   </head>
   <body>
     <div class="wrap">
       <header class="header">
-        <div class="title">Кандидат</div>
+        <div class="brand">
+          <img class="brandIcon" src="/static/brand.png" alt="Кандидат" />
+          <div class="title">Кандидат</div>
+        </div>
         <div class="meta">
           <span id="sessionState" class="pill">session: ?</span>
           <button id="btnStart" class="btn">Start session</button>

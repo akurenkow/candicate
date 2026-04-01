@@ -19,6 +19,8 @@ body {
 
 .wrap { max-width: 1200px; margin: 0 auto; padding: 18px; }
 .header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brandIcon { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,0.06); object-fit: cover; }
 .title { font-weight: 800; letter-spacing: 0.4px; font-size: 20px; }
 .meta { display: flex; align-items: center; gap: 10px; }
 .pill { padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 12px; }

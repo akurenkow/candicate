@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 
@@ -17,6 +17,10 @@ app = FastAPI(title=SERVICE_NAME)
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": SERVICE_NAME}
+
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

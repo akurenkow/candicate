@@ -20,7 +20,14 @@ const els = {
   bffUrl: byId("bffUrl"),
 };
 
-const defaultBff = localStorage.getItem("bffUrl") || "http://localhost:8010";
+const guessBffFromOrigin = () => {
+  // Avoid IPv6 localhost (::1) issues on Windows + Docker port publishing.
+  if (location.hostname === "localhost") return "http://127.0.0.1:8010";
+  if (location.hostname === "127.0.0.1") return "http://127.0.0.1:8010";
+  return `http://${location.hostname}:8010`;
+};
+
+const defaultBff = localStorage.getItem("bffUrl") || guessBffFromOrigin();
 els.bffUrl.value = defaultBff;
 els.bffUrl.addEventListener("change", () => {
   localStorage.setItem("bffUrl", els.bffUrl.value.trim());
