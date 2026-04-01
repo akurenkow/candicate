@@ -5,8 +5,6 @@ const els = {
   btnStart: byId("btnStart"),
   btnUpload: byId("btnUpload"),
   resumeFile: byId("resumeFile"),
-  jobId: byId("jobId"),
-  btnPoll: byId("btnPoll"),
   rawResume: byId("rawResume"),
   btnConvertRaw: byId("btnConvertRaw"),
   structuredResume: byId("structuredResume"),
@@ -18,6 +16,8 @@ const els = {
   chatInput: byId("chatInput"),
   btnSend: byId("btnSend"),
   bffUrl: byId("bffUrl"),
+  globalLoader: byId("globalLoader"),
+  globalLoaderText: byId("globalLoaderText"),
 };
 
 const guessBffFromOrigin = () => {
@@ -44,6 +44,16 @@ const bff = () => (els.bffUrl.value.trim() || defaultBff).replace(/\/$/, "");
 let chatInFlight = false;
 let thinkingEl = null;
 let actionInFlight = false;
+let busyCount = 0;
+
+const LOADER_TEXT = {
+  processing: "Спокойствие, только спокойствие! (идет анализ данных...)",
+  convert: "Конвертирую резюме в наш формат...",
+  upload: "Загружаю и индексирую резюме...",
+  match: "Спокойствие, только спокойствие! (идет анализ вакансии...)",
+  letter: "Спокойствие, только спокойствие! (формирую сопроводительное письмо...)",
+  chat: "Спокойствие, только спокойствие! (идет анализ данных...)",
+};
 
 async function api(path, opts = {}) {
   const url = `${bff()}${path}`;
@@ -102,6 +112,56 @@ function setActionLocked(locked) {
   els.btnLetter.disabled = locked;
 }
 
+function setThemeMode(mode) {
+  if (!mode) {
+    document.body.removeAttribute("data-mode");
+    return;
+  }
+  document.body.setAttribute("data-mode", mode);
+}
+
+function applyGlobalDisabled(disabled) {
+  const controls = [
+    els.btnStart,
+    els.btnUpload,
+    els.btnConvertRaw,
+    els.btnMatch,
+    els.btnLetter,
+    els.btnSend,
+    els.resumeFile,
+    els.rawResume,
+    els.vacancyText,
+    els.chatInput,
+    els.bffUrl,
+  ];
+  controls.forEach((el) => {
+    if (!el) return;
+    el.disabled = !!disabled;
+  });
+}
+
+function beginBusy(text, mode = "") {
+  busyCount += 1;
+  if (els.globalLoaderText) {
+    els.globalLoaderText.textContent = text || LOADER_TEXT.processing;
+  }
+  if (els.globalLoader) {
+    els.globalLoader.classList.remove("hidden");
+  }
+  setThemeMode(mode);
+  applyGlobalDisabled(true);
+}
+
+function endBusy() {
+  busyCount = Math.max(0, busyCount - 1);
+  if (busyCount > 0) return;
+  if (els.globalLoader) {
+    els.globalLoader.classList.add("hidden");
+  }
+  setThemeMode("");
+  applyGlobalDisabled(false);
+}
+
 function setActionThinking(label = "Думаю") {
   els.vacancyOut.value = `${label}...`;
 }
@@ -128,43 +188,68 @@ els.btnStart.addEventListener("click", async () => {
 });
 
 els.btnUpload.addEventListener("click", async () => {
-  await ensureSession();
-  const f = els.resumeFile.files && els.resumeFile.files[0];
-  if (!f) throw new Error("Выберите файл резюме");
-  const fd = new FormData();
-  fd.append("file", f);
-  const out = await api("/documents/upload", { method: "POST", body: fd });
-  els.jobId.value = out.job_id || "";
-  setActionOut(JSON.stringify(out, null, 2));
-});
-
-els.btnPoll.addEventListener("click", async () => {
-  const jobId = els.jobId.value.trim();
-  if (!jobId) throw new Error("Введите job_id");
-  const out = await api(`/documents/tasks/${encodeURIComponent(jobId)}/status`);
-  setActionOut(JSON.stringify(out, null, 2));
+  beginBusy(LOADER_TEXT.upload);
+  try {
+    await ensureSession();
+    const f = els.resumeFile.files && els.resumeFile.files[0];
+    if (!f) throw new Error("Выберите файл резюме");
+    const fd = new FormData();
+    fd.append("file", f);
+    const out = await api("/documents/upload", { method: "POST", body: fd });
+    const jobId = out.job_id || "";
+    if (!jobId) {
+      setActionOut("Загрузка отправлена, но job_id не получен.");
+      return;
+    }
+    for (let i = 0; i < 90; i++) {
+      const st = await api(`/documents/tasks/${encodeURIComponent(jobId)}/status`);
+      const status = String(st.status || "").toLowerCase();
+      if (status === "completed") {
+        setActionOut("Резюме успешно загружено и проиндексировано.");
+        return;
+      }
+      if (status === "failed") {
+        setActionOut(`Ошибка индексации: ${st.error_message || "unknown_error"}`);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    setActionOut("Индексация занимает больше обычного. Попробуйте чуть позже.");
+  } catch (e) {
+    setActionOut(`Ошибка upload: ${e && e.message ? e.message : String(e)}`);
+  } finally {
+    endBusy();
+  }
 });
 
 els.btnConvertRaw.addEventListener("click", async () => {
-  const raw = els.rawResume.value.trim();
-  if (!raw) throw new Error("Вставьте raw резюме");
-  const out = await api("/resume/convert", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ raw_text: raw }),
-  });
-  els.structuredResume.value = out.structured_text || "";
-  setActionOut(JSON.stringify(out, null, 2));
+  beginBusy(LOADER_TEXT.convert);
+  try {
+    const raw = els.rawResume.value.trim();
+    if (!raw) throw new Error("Вставьте raw резюме");
+    const out = await api("/resume/convert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ raw_text: raw }),
+    });
+    els.structuredResume.value = out.structured_text || "";
+    setActionOut(JSON.stringify(out, null, 2));
+  } catch (e) {
+    setActionOut(`Ошибка convert: ${e && e.message ? e.message : String(e)}`);
+  } finally {
+    endBusy();
+  }
 });
 
 els.btnMatch.addEventListener("click", async () => {
-  if (actionInFlight) return;
-  await ensureSession();
-  const vacancy = els.vacancyText.value.trim();
-  if (!vacancy) throw new Error("Вставьте текст вакансии");
+  if (actionInFlight || chatInFlight) return;
+  beginBusy(LOADER_TEXT.match, "match");
   setActionLocked(true);
   setActionThinking("Думаю над match");
   try {
+    await ensureSession();
+    const vacancy = els.vacancyText.value.trim();
+    if (!vacancy) throw new Error("Вставьте текст вакансии");
     const out = await api("/match-vacancy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -175,17 +260,19 @@ els.btnMatch.addEventListener("click", async () => {
     setActionOut(`Ошибка match: ${e && e.message ? e.message : String(e)}`);
   } finally {
     setActionLocked(false);
+    endBusy();
   }
 });
 
 els.btnLetter.addEventListener("click", async () => {
-  if (actionInFlight) return;
-  await ensureSession();
-  const vacancy = els.vacancyText.value.trim();
-  if (!vacancy) throw new Error("Вставьте текст вакансии");
+  if (actionInFlight || chatInFlight) return;
+  beginBusy(LOADER_TEXT.letter, "letter");
   setActionLocked(true);
   setActionThinking("Думаю над cover-letter");
   try {
+    await ensureSession();
+    const vacancy = els.vacancyText.value.trim();
+    if (!vacancy) throw new Error("Вставьте текст вакансии");
     const out = await api("/cover-letter", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -196,6 +283,7 @@ els.btnLetter.addEventListener("click", async () => {
     setActionOut(`Ошибка cover-letter: ${e && e.message ? e.message : String(e)}`);
   } finally {
     setActionLocked(false);
+    endBusy();
   }
 });
 
@@ -210,15 +298,16 @@ async function pollMessage(messageId) {
 }
 
 async function sendChat() {
-  if (chatInFlight) return;
-  await ensureSession();
+  if (chatInFlight || actionInFlight) return;
   const q = els.chatInput.value.trim();
   if (!q) return;
-  els.chatInput.value = "";
-  pushMsg("user", q);
+  beginBusy(LOADER_TEXT.chat);
   setChatLocked(true);
   pushThinking();
   try {
+    await ensureSession();
+    els.chatInput.value = "";
+    pushMsg("user", q);
     const enq = await api("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -234,6 +323,7 @@ async function sendChat() {
     pushMsg("assistant", `Ошибка: ${e && e.message ? e.message : String(e)}`);
   } finally {
     setChatLocked(false);
+    endBusy();
     els.chatInput.focus();
   }
 }

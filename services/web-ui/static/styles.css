@@ -1,6 +1,8 @@
 :root {
   --bg: #0b1020;
   --card: #121a33;
+  --bg-grad-a: rgba(106,228,255,0.25);
+  --bg-grad-b: rgba(130,95,255,0.18);
   --text: #e9ecf5;
   --muted: #a9b2d1;
   --line: rgba(255,255,255,0.08);
@@ -11,10 +13,11 @@
 body {
   margin: 0;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Liberation Sans", sans-serif;
-  background: radial-gradient(1200px 600px at 10% 0%, rgba(106,228,255,0.25), transparent 55%),
-              radial-gradient(900px 500px at 100% 20%, rgba(130,95,255,0.18), transparent 60%),
+  background: radial-gradient(1200px 600px at 10% 0%, var(--bg-grad-a), transparent 55%),
+              radial-gradient(900px 500px at 100% 20%, var(--bg-grad-b), transparent 60%),
               var(--bg);
   color: var(--text);
+  transition: background 320ms ease;
 }
 
 .bg {
@@ -41,6 +44,7 @@ body {
   backdrop-filter: blur(10px);
   border-radius: 14px;
   padding: 14px;
+  transition: background 320ms ease, border-color 320ms ease;
 }
 .card h2 { margin: 0 0 10px; font-size: 14px; color: var(--muted); font-weight: 650; }
 .card.chat { grid-column: 1 / -1; }
@@ -146,6 +150,63 @@ body {
 }
 .footer { margin-top: 14px; color: var(--muted); font-size: 12px; }
 .hint { display: flex; gap: 10px; align-items: center; }
+.hidden { display: none !important; }
+
+.globalLoader {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(3, 6, 16, 0.45);
+  display: grid;
+  place-items: center;
+  pointer-events: all;
+}
+.globalLoaderCard {
+  min-width: min(560px, 92vw);
+  max-width: 92vw;
+  border: 1px solid rgba(106,228,255,0.28);
+  border-radius: 14px;
+  background: rgba(8,14,33,0.82);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 0 36px rgba(106,228,255,0.18);
+  padding: 16px 18px;
+  text-align: center;
+}
+.loaderStars {
+  color: #6ae4ff;
+  font-size: 20px;
+  letter-spacing: 6px;
+  margin-bottom: 8px;
+  text-shadow: 0 0 10px rgba(106,228,255,0.8);
+  animation: twinkle 1.6s ease-in-out infinite;
+}
+.globalLoaderText {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+}
+@keyframes twinkle {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+
+body[data-mode="match"] {
+  --bg: #140f2b;
+  --card: #1b1640;
+  --bg-grad-a: rgba(140, 90, 255, 0.33);
+  --bg-grad-b: rgba(106, 228, 255, 0.12);
+}
+body[data-mode="letter"] {
+  --bg: #1a1030;
+  --card: #261749;
+  --bg-grad-a: rgba(164, 98, 255, 0.32);
+  --bg-grad-b: rgba(96, 216, 255, 0.12);
+}
+body[data-mode="match"] .card,
+body[data-mode="letter"] .card {
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+  border-color: rgba(156, 118, 255, 0.22);
+}
 
 @media (max-width: 1280px) {
   .wrap { padding: 12px; }

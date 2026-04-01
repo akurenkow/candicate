@@ -30,10 +30,6 @@
             <button id="btnUpload" class="btn primary">Upload</button>
           </div>
           <div class="row">
-            <input id="jobId" class="input" placeholder="job_id (из upload)" />
-            <button id="btnPoll" class="btn">Poll</button>
-          </div>
-          <div class="row">
             <textarea id="rawResume" class="textarea" rows="6" placeholder="Или вставьте резюме (raw) для /resume/convert"></textarea>
           </div>
           <div class="row">
@@ -70,6 +66,12 @@
           <input id="bffUrl" class="input small" />
         </div>
       </footer>
+    </div>
+    <div id="globalLoader" class="globalLoader hidden" aria-live="polite">
+      <div class="globalLoaderCard">
+        <div class="loaderStars">✦ ✧ ✦</div>
+        <div id="globalLoaderText" class="globalLoaderText">Спокойствие, только спокойствие! (идет анализ данных...)</div>
+      </div>
     </div>
 
     <script src="/static/neural.js"></script>
