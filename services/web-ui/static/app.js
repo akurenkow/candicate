@@ -46,6 +46,7 @@ let chatInFlight = false;
 let actionInFlight = false;
 let sessionActive = false;
 let thinkingEl = null;
+let persistentThemeMode = "";
 
 const LOADER_TEXT = {
   processing: "Спокойствие, только спокойствие! (идет анализ данных...)",
@@ -106,11 +107,12 @@ function setChatLocked(locked) {
 }
 
 function setThemeMode(mode) {
-  if (!mode) {
+  const next = mode || persistentThemeMode;
+  if (!next) {
     document.body.removeAttribute("data-mode");
     return;
   }
-  document.body.setAttribute("data-mode", mode);
+  document.body.setAttribute("data-mode", next);
 }
 
 function setAllButtonsDisabled(disabled) {
@@ -154,6 +156,22 @@ function setActionThinking(label = "Думаю") {
 function setActionOut(text) {
   els.vacancyOut.value = text;
   els.vacancyOut.scrollTop = 0;
+}
+
+function formatMatchOutput(payload) {
+  const item = Array.isArray(payload) ? payload[0] : payload;
+  if (!item || typeof item !== "object") return JSON.stringify(payload, null, 2);
+  const score = typeof item.relevance_score === "number" ? item.relevance_score : null;
+  const summary = typeof item.summary === "string" ? item.summary.trim() : "";
+  if (summary) {
+    return score == null ? summary : `Релевантность: ${score.toFixed(2)}\n\n${summary}`;
+  }
+  const snippets = Array.isArray(item.matched_snippets) ? item.matched_snippets : [];
+  if (snippets.length) {
+    const prefix = score == null ? "" : `Релевантность: ${score.toFixed(2)}\n\n`;
+    return `${prefix}${snippets.slice(0, 5).join("\n\n")}`;
+  }
+  return JSON.stringify(payload, null, 2);
 }
 
 async function ensureSession() {
@@ -268,12 +286,13 @@ els.btnMatch.addEventListener("click", async () => {
       body: JSON.stringify({ vacancy_text: vacancy, summary: true, target_lang: "ru" }),
     });
     setInlineLoader(els.vacancyLoader, "", false);
-    setActionOut(JSON.stringify(out, null, 2));
+    setActionOut(formatMatchOutput(out));
+    persistentThemeMode = "match";
+    setThemeMode();
   } catch (e) {
     setInlineLoader(els.vacancyLoader, "", false);
     setActionOut(`Ошибка match: ${e && e.message ? e.message : String(e)}`);
   } finally {
-    setThemeMode("");
     actionInFlight = false;
     setAllButtonsDisabled(false);
   }
@@ -285,7 +304,6 @@ els.btnLetter.addEventListener("click", async () => {
   setAllButtonsDisabled(true);
   setActionThinking("Думаю над cover-letter");
   setInlineLoader(els.vacancyLoader, LOADER_TEXT.letter, true);
-  setThemeMode("letter");
   try {
     await ensureSession();
     const vacancy = els.vacancyText.value.trim();
@@ -301,7 +319,6 @@ els.btnLetter.addEventListener("click", async () => {
     setInlineLoader(els.vacancyLoader, "", false);
     setActionOut(`Ошибка cover-letter: ${e && e.message ? e.message : String(e)}`);
   } finally {
-    setThemeMode("");
     actionInFlight = false;
     setAllButtonsDisabled(false);
   }
