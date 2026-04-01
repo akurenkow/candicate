@@ -24,7 +24,12 @@ const guessBffFromOrigin = () => {
   // Avoid IPv6 localhost (::1) issues on Windows + Docker port publishing.
   if (location.hostname === "localhost") return "http://127.0.0.1:8010";
   if (location.hostname === "127.0.0.1") return "http://127.0.0.1:8010";
-  // On VPS behind Nginx we serve BFF on same origin via /bff (no CORS).
+  // If UI is opened directly on its published port (e.g. http://IP:3000),
+  // there is no Nginx path routing, so use the BFF published port.
+  if (location.port && location.port !== "80" && location.port !== "443") {
+    return `http://${location.hostname}:8010`;
+  }
+  // Behind Nginx on port 80/443 we serve BFF on same origin via /bff (no CORS).
   return `${location.origin}/bff`;
 };
 
