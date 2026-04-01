@@ -292,6 +292,7 @@ services:
       # Список внешних ID пользователей, допущенных к загрузке резюме (через запятую)
       ALLOWED_UPLOAD_USER_IDS: ${ALLOWED_UPLOAD_USER_IDS:-417554679}
       ALLOW_E2E_UPLOAD: ${ALLOW_E2E_UPLOAD:-}
+      WEB_BFF_UPLOAD_TOKEN: ${WEB_BFF_UPLOAD_TOKEN:-dev-upload-token}
       
       # Метрики и наблюдаемость
       METRICS_PORT: 8000
@@ -975,6 +976,78 @@ services:
       - conversation-manager
       - retrieval-service
       - translation-service
+
+  # ----- Web BFF (anonymous session + proxy for web UI) -----
+  web-bff:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SVC: web-bff
+    image: rag-web-bff:latest
+    container_name: rag-web-bff
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "8010:8000"
+    environment:
+      SERVICE_NAME: web-bff
+      SERVICE_PORT: 8000
+      BASE_API_URL: http://api-gateway:8000
+      SESSION_SECRET: ${WEB_SESSION_SECRET:-dev-insecure-change-me}
+      SESSION_MAX_AGE_SEC: "172800"
+      WEB_BFF_UPLOAD_TOKEN: ${WEB_BFF_UPLOAD_TOKEN:-dev-upload-token}
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:8010"
+      COOKIE_SECURE: "false"
+    depends_on:
+      api-gateway:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+  # ----- Web UI (static, talks to web-bff) -----
+  web-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SVC: web-ui
+    image: rag-web-ui:latest
+    container_name: rag-web-ui
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "3000:8000"
+    environment:
+      SERVICE_NAME: web-ui
+      SERVICE_PORT: 8000
+    depends_on:
+      web-bff:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
 
 # ============================================
 # VOLUMES (объявлены в части 1)

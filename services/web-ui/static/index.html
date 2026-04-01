@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Кандидат — Web UI (MVP)</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="header">
+        <div class="title">Кандидат</div>
+        <div class="meta">
+          <span id="sessionState" class="pill">session: ?</span>
+          <button id="btnStart" class="btn">Start session</button>
+        </div>
+      </header>
+
+      <main class="grid">
+        <section class="card">
+          <h2>Резюме</h2>
+          <div class="row">
+            <input id="resumeFile" type="file" />
+            <button id="btnUpload" class="btn primary">Upload</button>
+          </div>
+          <div class="row">
+            <input id="jobId" class="input" placeholder="job_id (из upload)" />
+            <button id="btnPoll" class="btn">Poll</button>
+          </div>
+          <div class="row">
+            <textarea id="rawResume" class="textarea" rows="6" placeholder="Или вставьте резюме (raw) для /resume/convert"></textarea>
+          </div>
+          <div class="row">
+            <button id="btnConvertRaw" class="btn">Convert raw</button>
+          </div>
+          <div class="row">
+            <textarea id="structuredResume" class="textarea" rows="8" placeholder="structured_text (результат convert)"></textarea>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Вакансия</h2>
+          <textarea id="vacancyText" class="textarea" rows="10" placeholder="Вставьте описание вакансии"></textarea>
+          <div class="row">
+            <button id="btnMatch" class="btn primary">Match</button>
+            <button id="btnLetter" class="btn">Cover letter</button>
+          </div>
+          <pre id="vacancyOut" class="out"></pre>
+        </section>
+
+        <section class="card chat">
+          <h2>Чат по резюме</h2>
+          <div id="chatLog" class="chatlog"></div>
+          <div class="row">
+            <input id="chatInput" class="input" placeholder="Спросите про резюме…" />
+            <button id="btnSend" class="btn primary">Send</button>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="hint">
+          BFF URL:
+          <input id="bffUrl" class="input small" />
+        </div>
+      </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

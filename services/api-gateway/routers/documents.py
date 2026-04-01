@@ -35,6 +35,8 @@ DEFAULT_MAX_SIZE_MB = 25
 DEFAULT_UPLOAD_QUEUE = "document_uploads"
 ENV_ALLOWED_UPLOAD_USER_IDS = "ALLOWED_UPLOAD_USER_IDS"
 ENV_ALLOW_E2E_UPLOAD = "ALLOW_E2E_UPLOAD"
+ENV_WEB_BFF_UPLOAD_TOKEN = "WEB_BFF_UPLOAD_TOKEN"
+HEADER_UPLOAD_TOKEN = "X-Upload-Token"
 ENV_INGESTION_SERVICE_URL = "INGESTION_SERVICE_URL"
 DEFAULT_INGESTION_SERVICE_URL = "http://ingestion-service:8000"
 
@@ -101,11 +103,19 @@ async def upload_document(
     Accept file upload, validate, publish to RabbitMQ (upload_document), return 202.
     FLOW-02, CTR-03. Только owner_id из списка ALLOWED_UPLOAD_USER_IDS допускаются к загрузке (403 иначе).
     """
+    web_bff_secret = os.getenv(ENV_WEB_BFF_UPLOAD_TOKEN, "").strip()
+    provided_secret = (request.headers.get(HEADER_UPLOAD_TOKEN) or "").strip()
+    bypass_allowed_list = bool(web_bff_secret and provided_secret and provided_secret == web_bff_secret)
+
     allowed_ids = _get_allowed_upload_user_ids()
     owner_stripped = (owner_id or "").strip()
-    if allowed_ids and not owner_stripped:
+    if not owner_stripped:
+        raise HTTPException(status_code=400, detail="owner_id is required")
+    if bypass_allowed_list:
+        pass
+    elif allowed_ids and not owner_stripped:
         raise HTTPException(status_code=403, detail="Upload not allowed for this user")
-    if allowed_ids and owner_stripped not in allowed_ids and not _is_e2e_test_owner(owner_stripped):
+    if (not bypass_allowed_list) and allowed_ids and owner_stripped not in allowed_ids and not _is_e2e_test_owner(owner_stripped):
         raise HTTPException(
             status_code=403,
             detail="Upload not allowed for this user",
