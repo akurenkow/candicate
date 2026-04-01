@@ -29,6 +29,7 @@ SESSION_MAX_AGE_SEC = int(os.getenv("SESSION_MAX_AGE_SEC", "172800"))  # 48h
 WEB_BFF_UPLOAD_TOKEN = os.getenv("WEB_BFF_UPLOAD_TOKEN", "").strip()
 
 _cors_origins_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8010").strip()
+_cors_origin_regex = os.getenv("CORS_ORIGIN_REGEX", "").strip()
 if _cors_origins_raw and _cors_origins_raw != "*":
     _cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
     _cors_allow_credentials = True
@@ -88,6 +89,7 @@ app = FastAPI(title=SERVICE_NAME)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex or None,
     allow_credentials=_cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
