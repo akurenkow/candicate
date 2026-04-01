@@ -18,6 +18,7 @@ const els = {
   bffUrl: byId("bffUrl"),
   globalLoader: byId("globalLoader"),
   globalLoaderText: byId("globalLoaderText"),
+  progressLamps: byId("progressLamps"),
 };
 
 const guessBffFromOrigin = () => {
@@ -150,6 +151,7 @@ function beginBusy(text, mode = "") {
   }
   setThemeMode(mode);
   applyGlobalDisabled(true);
+  setLoaderStep(1);
 }
 
 function endBusy() {
@@ -160,6 +162,22 @@ function endBusy() {
   }
   setThemeMode("");
   applyGlobalDisabled(false);
+  setLoaderStep(0);
+}
+
+function setLoaderStep(step) {
+  if (!els.progressLamps) return;
+  const lamps = els.progressLamps.querySelectorAll(".lamp");
+  lamps.forEach((lamp) => {
+    const n = Number(lamp.getAttribute("data-step") || "0");
+    lamp.classList.toggle("active", step >= n && step > 0);
+  });
+}
+
+function setLoaderText(text) {
+  if (els.globalLoaderText) {
+    els.globalLoaderText.textContent = text || LOADER_TEXT.processing;
+  }
 }
 
 function setActionThinking(label = "Думаю") {
@@ -195,6 +213,8 @@ els.btnUpload.addEventListener("click", async () => {
     if (!f) throw new Error("Выберите файл резюме");
     const fd = new FormData();
     fd.append("file", f);
+    setLoaderStep(2);
+    setLoaderText("Конвертирую и загружаю резюме...");
     const out = await api("/documents/upload", { method: "POST", body: fd });
     const jobId = out.job_id || "";
     if (!jobId) {
@@ -202,13 +222,17 @@ els.btnUpload.addEventListener("click", async () => {
       return;
     }
     for (let i = 0; i < 90; i++) {
+      setLoaderText(LOADER_TEXT.upload);
       const st = await api(`/documents/tasks/${encodeURIComponent(jobId)}/status`);
       const status = String(st.status || "").toLowerCase();
       if (status === "completed") {
+        setLoaderStep(3);
+        setLoaderText("Готово. Резюме проиндексировано.");
         setActionOut("Резюме успешно загружено и проиндексировано.");
         return;
       }
       if (status === "failed") {
+        setLoaderStep(3);
         setActionOut(`Ошибка индексации: ${st.error_message || "unknown_error"}`);
         return;
       }
@@ -227,11 +251,14 @@ els.btnConvertRaw.addEventListener("click", async () => {
   try {
     const raw = els.rawResume.value.trim();
     if (!raw) throw new Error("Вставьте raw резюме");
+    setLoaderStep(2);
     const out = await api("/resume/convert", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ raw_text: raw }),
     });
+    setLoaderStep(3);
+    setLoaderText("Готово. Конвертация завершена.");
     els.structuredResume.value = out.structured_text || "";
     setActionOut(JSON.stringify(out, null, 2));
   } catch (e) {
@@ -250,11 +277,14 @@ els.btnMatch.addEventListener("click", async () => {
     await ensureSession();
     const vacancy = els.vacancyText.value.trim();
     if (!vacancy) throw new Error("Вставьте текст вакансии");
+    setLoaderStep(2);
     const out = await api("/match-vacancy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vacancy_text: vacancy, summary: true, target_lang: "ru" }),
     });
+    setLoaderStep(3);
+    setLoaderText("Готово. Анализ вакансии завершен.");
     setActionOut(JSON.stringify(out, null, 2));
   } catch (e) {
     setActionOut(`Ошибка match: ${e && e.message ? e.message : String(e)}`);
@@ -273,11 +303,14 @@ els.btnLetter.addEventListener("click", async () => {
     await ensureSession();
     const vacancy = els.vacancyText.value.trim();
     if (!vacancy) throw new Error("Вставьте текст вакансии");
+    setLoaderStep(2);
     const out = await api("/cover-letter", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vacancy_text: vacancy }),
     });
+    setLoaderStep(3);
+    setLoaderText("Готово. Сопроводительное письмо сформировано.");
     setActionOut(out.letter || out.error || JSON.stringify(out, null, 2));
   } catch (e) {
     setActionOut(`Ошибка cover-letter: ${e && e.message ? e.message : String(e)}`);
@@ -308,6 +341,7 @@ async function sendChat() {
     await ensureSession();
     els.chatInput.value = "";
     pushMsg("user", q);
+    setLoaderStep(2);
     const enq = await api("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -315,6 +349,8 @@ async function sendChat() {
     });
     const messageId = enq.message_id;
     const st = await pollMessage(messageId);
+    setLoaderStep(3);
+    setLoaderText("Готово. Ответ получен.");
     const text = st.assistant_text_translated || st.assistant_text || "(empty)";
     popThinking();
     pushMsg("assistant", text);

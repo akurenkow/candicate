@@ -172,6 +172,26 @@ body {
   padding: 16px 18px;
   text-align: center;
 }
+.progressLamps {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.lamp {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(150, 170, 200, 0.35);
+  box-shadow: 0 0 0 rgba(106,228,255,0);
+  transition: background 180ms ease, box-shadow 220ms ease, transform 160ms ease;
+}
+.lamp.active {
+  background: #6ae4ff;
+  box-shadow: 0 0 10px rgba(106,228,255,0.85), 0 0 18px rgba(106,228,255,0.45);
+  transform: scale(1.1);
+}
 .loaderStars {
   color: #6ae4ff;
   font-size: 20px;
