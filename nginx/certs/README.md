@@ -1,4 +1,4 @@
-TLS files for `ui.candidate.ferus.tech`
+TLS files for `candidate-ui.ferus.tech` (wildcard `*.ferus.tech` covers this host)
 
 Put certificate files into this folder on the host:
 
