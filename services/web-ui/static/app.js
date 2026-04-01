@@ -8,17 +8,17 @@ const els = {
   rawResume: byId("rawResume"),
   btnConvertRaw: byId("btnConvertRaw"),
   structuredResume: byId("structuredResume"),
+  resumeLoader: byId("resumeLoader"),
+  resumeLamps: byId("resumeLamps"),
   vacancyText: byId("vacancyText"),
   btnMatch: byId("btnMatch"),
   btnLetter: byId("btnLetter"),
   vacancyOut: byId("vacancyOut"),
+  vacancyLoader: byId("vacancyLoader"),
   chatLog: byId("chatLog"),
   chatInput: byId("chatInput"),
   btnSend: byId("btnSend"),
   bffUrl: byId("bffUrl"),
-  globalLoader: byId("globalLoader"),
-  globalLoaderText: byId("globalLoaderText"),
-  progressLamps: byId("progressLamps"),
 };
 
 const guessBffFromOrigin = () => {
@@ -43,9 +43,9 @@ els.bffUrl.addEventListener("change", () => {
 const bff = () => (els.bffUrl.value.trim() || defaultBff).replace(/\/$/, "");
 
 let chatInFlight = false;
-let thinkingEl = null;
 let actionInFlight = false;
-let busyCount = 0;
+let sessionActive = false;
+let thinkingEl = null;
 
 const LOADER_TEXT = {
   processing: "Спокойствие, только спокойствие! (идет анализ данных...)",
@@ -88,7 +88,7 @@ function pushThinking() {
   if (thinkingEl) return thinkingEl;
   const div = document.createElement("div");
   div.className = "msg assistant thinking";
-  div.innerHTML = `Думаю<span class="dots"></span>`;
+  div.innerHTML = `Думаю <span class="constellation"><i></i><i></i><i></i><i></i></span>`;
   els.chatLog.appendChild(div);
   els.chatLog.scrollTop = els.chatLog.scrollHeight;
   thinkingEl = div;
@@ -103,14 +103,6 @@ function popThinking() {
 
 function setChatLocked(locked) {
   chatInFlight = locked;
-  els.btnSend.disabled = locked;
-  els.chatInput.disabled = locked;
-}
-
-function setActionLocked(locked) {
-  actionInFlight = locked;
-  els.btnMatch.disabled = locked;
-  els.btnLetter.disabled = locked;
 }
 
 function setThemeMode(mode) {
@@ -121,63 +113,38 @@ function setThemeMode(mode) {
   document.body.setAttribute("data-mode", mode);
 }
 
-function applyGlobalDisabled(disabled) {
-  const controls = [
-    els.btnStart,
-    els.btnUpload,
-    els.btnConvertRaw,
-    els.btnMatch,
-    els.btnLetter,
-    els.btnSend,
-    els.resumeFile,
-    els.rawResume,
-    els.vacancyText,
-    els.chatInput,
-    els.bffUrl,
-  ];
-  controls.forEach((el) => {
-    if (!el) return;
-    el.disabled = !!disabled;
+function setAllButtonsDisabled(disabled) {
+  document.querySelectorAll("button").forEach((btn) => {
+    btn.disabled = !!disabled;
   });
 }
 
-function beginBusy(text, mode = "") {
-  busyCount += 1;
-  if (els.globalLoaderText) {
-    els.globalLoaderText.textContent = text || LOADER_TEXT.processing;
+function setResumeLamp(stage) {
+  if (!els.resumeLamps) return;
+  const red = els.resumeLamps.querySelector('[data-rstep="1"]');
+  const yellow = els.resumeLamps.querySelector('[data-rstep="2"]');
+  const green = els.resumeLamps.querySelector('[data-rstep="3"]');
+  [red, yellow, green].forEach((x) => x && x.classList.remove("active"));
+  if (stage === "upload2") {
+    yellow && yellow.classList.add("active");
+    return;
   }
-  if (els.globalLoader) {
-    els.globalLoader.classList.remove("hidden");
+  if (stage === "ready") {
+    green && green.classList.add("active");
+    return;
   }
-  setThemeMode(mode);
-  applyGlobalDisabled(true);
-  setLoaderStep(1);
+  red && red.classList.add("active");
 }
 
-function endBusy() {
-  busyCount = Math.max(0, busyCount - 1);
-  if (busyCount > 0) return;
-  if (els.globalLoader) {
-    els.globalLoader.classList.add("hidden");
+function setInlineLoader(el, text = "", visible = false) {
+  if (!el) return;
+  if (!visible) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
   }
-  setThemeMode("");
-  applyGlobalDisabled(false);
-  setLoaderStep(0);
-}
-
-function setLoaderStep(step) {
-  if (!els.progressLamps) return;
-  const lamps = els.progressLamps.querySelectorAll(".lamp");
-  lamps.forEach((lamp) => {
-    const n = Number(lamp.getAttribute("data-step") || "0");
-    lamp.classList.toggle("active", step >= n && step > 0);
-  });
-}
-
-function setLoaderText(text) {
-  if (els.globalLoaderText) {
-    els.globalLoaderText.textContent = text || LOADER_TEXT.processing;
-  }
+  el.classList.remove("hidden");
+  el.innerHTML = `<span class="constellation"><i></i><i></i><i></i><i></i></span><span>${text || LOADER_TEXT.processing}</span>`;
 }
 
 function setActionThinking(label = "Думаю") {
@@ -193,28 +160,35 @@ async function ensureSession() {
   try {
     const me = await api("/session/me");
     els.sessionState.textContent = `session: ${me.owner_id.slice(0, 8)}…`;
+    sessionActive = true;
     return me.owner_id;
   } catch {
     const started = await api("/session/start", { method: "POST" });
     els.sessionState.textContent = `session: ${started.owner_id.slice(0, 8)}…`;
+    sessionActive = true;
     return started.owner_id;
   }
 }
 
 els.btnStart.addEventListener("click", async () => {
   await ensureSession();
+  setResumeLamp(sessionActive ? "ready" : "idle");
 });
 
 els.btnUpload.addEventListener("click", async () => {
-  beginBusy(LOADER_TEXT.upload);
+  if (chatInFlight || actionInFlight) return;
+  actionInFlight = true;
+  setAllButtonsDisabled(true);
+  setResumeLamp("idle");
+  setInlineLoader(els.resumeLoader, LOADER_TEXT.upload, true);
   try {
     await ensureSession();
     const f = els.resumeFile.files && els.resumeFile.files[0];
     if (!f) throw new Error("Выберите файл резюме");
     const fd = new FormData();
     fd.append("file", f);
-    setLoaderStep(2);
-    setLoaderText("Конвертирую и загружаю резюме...");
+    setResumeLamp("upload2");
+    setInlineLoader(els.resumeLoader, "Конвертирую и загружаю резюме...", true);
     const out = await api("/documents/upload", { method: "POST", body: fd });
     const jobId = out.job_id || "";
     if (!jobId) {
@@ -222,101 +196,114 @@ els.btnUpload.addEventListener("click", async () => {
       return;
     }
     for (let i = 0; i < 90; i++) {
-      setLoaderText(LOADER_TEXT.upload);
+      setInlineLoader(els.resumeLoader, LOADER_TEXT.upload, true);
       const st = await api(`/documents/tasks/${encodeURIComponent(jobId)}/status`);
       const status = String(st.status || "").toLowerCase();
       if (status === "completed") {
-        setLoaderStep(3);
-        setLoaderText("Готово. Резюме проиндексировано.");
+        setResumeLamp("ready");
+        setInlineLoader(els.resumeLoader, "", false);
         setActionOut("Резюме успешно загружено и проиндексировано.");
         return;
       }
       if (status === "failed") {
-        setLoaderStep(3);
+        setResumeLamp(sessionActive ? "ready" : "idle");
+        setInlineLoader(els.resumeLoader, "", false);
         setActionOut(`Ошибка индексации: ${st.error_message || "unknown_error"}`);
         return;
       }
       await new Promise((r) => setTimeout(r, 2000));
     }
+    setResumeLamp(sessionActive ? "ready" : "idle");
+    setInlineLoader(els.resumeLoader, "", false);
     setActionOut("Индексация занимает больше обычного. Попробуйте чуть позже.");
   } catch (e) {
+    setResumeLamp(sessionActive ? "ready" : "idle");
+    setInlineLoader(els.resumeLoader, "", false);
     setActionOut(`Ошибка upload: ${e && e.message ? e.message : String(e)}`);
   } finally {
-    endBusy();
+    actionInFlight = false;
+    setAllButtonsDisabled(false);
   }
 });
 
 els.btnConvertRaw.addEventListener("click", async () => {
-  beginBusy(LOADER_TEXT.convert);
+  if (chatInFlight || actionInFlight) return;
+  actionInFlight = true;
+  setAllButtonsDisabled(true);
+  setInlineLoader(els.resumeLoader, LOADER_TEXT.convert, true);
   try {
     const raw = els.rawResume.value.trim();
     if (!raw) throw new Error("Вставьте raw резюме");
-    setLoaderStep(2);
     const out = await api("/resume/convert", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ raw_text: raw }),
     });
-    setLoaderStep(3);
-    setLoaderText("Готово. Конвертация завершена.");
+    setInlineLoader(els.resumeLoader, "", false);
     els.structuredResume.value = out.structured_text || "";
     setActionOut(JSON.stringify(out, null, 2));
   } catch (e) {
+    setInlineLoader(els.resumeLoader, "", false);
     setActionOut(`Ошибка convert: ${e && e.message ? e.message : String(e)}`);
   } finally {
-    endBusy();
+    actionInFlight = false;
+    setAllButtonsDisabled(false);
   }
 });
 
 els.btnMatch.addEventListener("click", async () => {
   if (actionInFlight || chatInFlight) return;
-  beginBusy(LOADER_TEXT.match, "match");
-  setActionLocked(true);
+  actionInFlight = true;
+  setAllButtonsDisabled(true);
   setActionThinking("Думаю над match");
+  setInlineLoader(els.vacancyLoader, LOADER_TEXT.match, true);
+  setThemeMode("match");
   try {
     await ensureSession();
     const vacancy = els.vacancyText.value.trim();
     if (!vacancy) throw new Error("Вставьте текст вакансии");
-    setLoaderStep(2);
     const out = await api("/match-vacancy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vacancy_text: vacancy, summary: true, target_lang: "ru" }),
     });
-    setLoaderStep(3);
-    setLoaderText("Готово. Анализ вакансии завершен.");
+    setInlineLoader(els.vacancyLoader, "", false);
     setActionOut(JSON.stringify(out, null, 2));
   } catch (e) {
+    setInlineLoader(els.vacancyLoader, "", false);
     setActionOut(`Ошибка match: ${e && e.message ? e.message : String(e)}`);
   } finally {
-    setActionLocked(false);
-    endBusy();
+    setThemeMode("");
+    actionInFlight = false;
+    setAllButtonsDisabled(false);
   }
 });
 
 els.btnLetter.addEventListener("click", async () => {
   if (actionInFlight || chatInFlight) return;
-  beginBusy(LOADER_TEXT.letter, "letter");
-  setActionLocked(true);
+  actionInFlight = true;
+  setAllButtonsDisabled(true);
   setActionThinking("Думаю над cover-letter");
+  setInlineLoader(els.vacancyLoader, LOADER_TEXT.letter, true);
+  setThemeMode("letter");
   try {
     await ensureSession();
     const vacancy = els.vacancyText.value.trim();
     if (!vacancy) throw new Error("Вставьте текст вакансии");
-    setLoaderStep(2);
     const out = await api("/cover-letter", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vacancy_text: vacancy }),
     });
-    setLoaderStep(3);
-    setLoaderText("Готово. Сопроводительное письмо сформировано.");
+    setInlineLoader(els.vacancyLoader, "", false);
     setActionOut(out.letter || out.error || JSON.stringify(out, null, 2));
   } catch (e) {
+    setInlineLoader(els.vacancyLoader, "", false);
     setActionOut(`Ошибка cover-letter: ${e && e.message ? e.message : String(e)}`);
   } finally {
-    setActionLocked(false);
-    endBusy();
+    setThemeMode("");
+    actionInFlight = false;
+    setAllButtonsDisabled(false);
   }
 });
 
@@ -334,14 +321,13 @@ async function sendChat() {
   if (chatInFlight || actionInFlight) return;
   const q = els.chatInput.value.trim();
   if (!q) return;
-  beginBusy(LOADER_TEXT.chat);
+  setAllButtonsDisabled(true);
   setChatLocked(true);
   pushThinking();
   try {
     await ensureSession();
     els.chatInput.value = "";
     pushMsg("user", q);
-    setLoaderStep(2);
     const enq = await api("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -349,8 +335,6 @@ async function sendChat() {
     });
     const messageId = enq.message_id;
     const st = await pollMessage(messageId);
-    setLoaderStep(3);
-    setLoaderText("Готово. Ответ получен.");
     const text = st.assistant_text_translated || st.assistant_text || "(empty)";
     popThinking();
     pushMsg("assistant", text);
@@ -359,7 +343,7 @@ async function sendChat() {
     pushMsg("assistant", `Ошибка: ${e && e.message ? e.message : String(e)}`);
   } finally {
     setChatLocked(false);
-    endBusy();
+    setAllButtonsDisabled(false);
     els.chatInput.focus();
   }
 }
@@ -375,11 +359,6 @@ els.chatInput.addEventListener("keydown", (e) => {
 
 window.addEventListener("load", async () => {
   setActionOut("Здесь появится прокручиваемый результат match / cover-letter");
-  try {
-    await ensureSession();
-  } catch (e) {
-    els.sessionState.textContent = "session: error";
-    console.warn(e);
-  }
+  setResumeLamp("idle");
 });
 

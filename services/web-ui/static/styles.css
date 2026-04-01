@@ -48,6 +48,7 @@ body {
 }
 .card h2 { margin: 0 0 10px; font-size: 14px; color: var(--muted); font-weight: 650; }
 .card.chat { grid-column: 1 / -1; }
+.topCard { min-height: 560px; display: flex; flex-direction: column; }
 .row { display: flex; gap: 10px; margin: 10px 0; align-items: center; min-width: 0; flex-wrap: wrap; }
 .input, .textarea {
   width: 100%;
@@ -116,12 +117,68 @@ body {
   border: 1px solid var(--line);
   background: rgba(0,0,0,0.22);
   color: var(--text);
-  min-height: 220px;
+  min-height: 240px;
   max-height: 460px;
   resize: vertical;
   overflow: auto;
   outline: none;
   white-space: pre-wrap;
+}
+.resumeLamps {
+  display: flex;
+  gap: 8px;
+  margin: -2px 0 8px;
+}
+.rlamp {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  opacity: 0.25;
+  transition: opacity 200ms ease, box-shadow 220ms ease, transform 180ms ease;
+}
+.rlamp.red { background: #ff4d5f; }
+.rlamp.yellow { background: #ffd24d; }
+.rlamp.green { background: #4dff9a; }
+.rlamp.active {
+  opacity: 1;
+  transform: scale(1.08);
+}
+.rlamp.red.active { box-shadow: 0 0 8px rgba(255,77,95,0.75); }
+.rlamp.yellow.active { box-shadow: 0 0 8px rgba(255,210,77,0.75); }
+.rlamp.green.active { box-shadow: 0 0 8px rgba(77,255,154,0.75); }
+
+.inlineLoader {
+  margin: 2px 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.constellation {
+  position: relative;
+  width: 22px;
+  height: 14px;
+  flex: 0 0 22px;
+}
+.constellation i {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #79e7ff;
+  box-shadow: 0 0 7px rgba(121,231,255,0.85);
+  animation: morph 1.6s infinite ease-in-out;
+}
+.constellation i:nth-child(1) { left: 1px; top: 5px; animation-delay: 0s; }
+.constellation i:nth-child(2) { left: 8px; top: 1px; animation-delay: .2s; }
+.constellation i:nth-child(3) { left: 16px; top: 5px; animation-delay: .4s; }
+.constellation i:nth-child(4) { left: 8px; top: 10px; animation-delay: .6s; }
+@keyframes morph {
+  0%, 100% { transform: scale(0.7); opacity: .4; }
+  25% { transform: translateY(-2px) scale(1); opacity: 1; }
+  50% { transform: translateX(1px) scale(0.8); opacity: .55; }
+  75% { transform: translateY(2px) scale(1.02); opacity: .9; }
 }
 .chatlog {
   border: 1px solid var(--line);
@@ -152,64 +209,6 @@ body {
 .hint { display: flex; gap: 10px; align-items: center; }
 .hidden { display: none !important; }
 
-.globalLoader {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  background: rgba(3, 6, 16, 0.45);
-  display: grid;
-  place-items: center;
-  pointer-events: all;
-}
-.globalLoaderCard {
-  min-width: min(560px, 92vw);
-  max-width: 92vw;
-  border: 1px solid rgba(106,228,255,0.28);
-  border-radius: 14px;
-  background: rgba(8,14,33,0.82);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 0 36px rgba(106,228,255,0.18);
-  padding: 16px 18px;
-  text-align: center;
-}
-.progressLamps {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.lamp {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(150, 170, 200, 0.35);
-  box-shadow: 0 0 0 rgba(106,228,255,0);
-  transition: background 180ms ease, box-shadow 220ms ease, transform 160ms ease;
-}
-.lamp.active {
-  background: #6ae4ff;
-  box-shadow: 0 0 10px rgba(106,228,255,0.85), 0 0 18px rgba(106,228,255,0.45);
-  transform: scale(1.1);
-}
-.loaderStars {
-  color: #6ae4ff;
-  font-size: 20px;
-  letter-spacing: 6px;
-  margin-bottom: 8px;
-  text-shadow: 0 0 10px rgba(106,228,255,0.8);
-  animation: twinkle 1.6s ease-in-out infinite;
-}
-.globalLoaderText {
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.4;
-}
-@keyframes twinkle {
-  0%, 100% { opacity: 0.7; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.06); }
-}
-
 body[data-mode="match"] {
   --bg: #140f2b;
   --card: #1b1640;
@@ -233,6 +232,7 @@ body[data-mode="letter"] .card {
 }
 @media (max-width: 980px) {
   .grid { grid-template-columns: 1fr; }
+  .topCard { min-height: auto; }
   .meta { width: 100%; justify-content: flex-start; }
   .header { flex-wrap: wrap; }
   .hint { flex-wrap: wrap; }

@@ -23,8 +23,13 @@
       </header>
 
       <main class="grid">
-        <section class="card">
+        <section class="card topCard">
           <h2>Резюме</h2>
+          <div class="resumeLamps" id="resumeLamps" aria-label="Статус загрузки резюме">
+            <span class="rlamp red active" data-rstep="1"></span>
+            <span class="rlamp yellow" data-rstep="2"></span>
+            <span class="rlamp green" data-rstep="3"></span>
+          </div>
           <div class="row">
             <input id="resumeFile" type="file" />
             <button id="btnUpload" class="btn primary">Upload</button>
@@ -35,18 +40,20 @@
           <div class="row">
             <button id="btnConvertRaw" class="btn">Convert raw</button>
           </div>
+          <div id="resumeLoader" class="inlineLoader hidden"></div>
           <div class="row">
             <textarea id="structuredResume" class="textarea" rows="8" placeholder="structured_text (результат convert)"></textarea>
           </div>
         </section>
 
-        <section class="card">
+        <section class="card topCard">
           <h2>Вакансия</h2>
           <textarea id="vacancyText" class="textarea" rows="10" placeholder="Вставьте описание вакансии"></textarea>
           <div class="row">
             <button id="btnMatch" class="btn primary">Match</button>
             <button id="btnLetter" class="btn">Cover letter</button>
           </div>
+          <div id="vacancyLoader" class="inlineLoader hidden"></div>
           <textarea id="vacancyOut" class="outText" rows="12" readonly placeholder="Здесь появится прокручиваемый результат match / cover-letter"></textarea>
         </section>
 
@@ -66,17 +73,6 @@
           <input id="bffUrl" class="input small" />
         </div>
       </footer>
-    </div>
-    <div id="globalLoader" class="globalLoader hidden" aria-live="polite">
-      <div class="globalLoaderCard">
-        <div class="progressLamps" id="progressLamps">
-          <span class="lamp" data-step="1"></span>
-          <span class="lamp" data-step="2"></span>
-          <span class="lamp" data-step="3"></span>
-        </div>
-        <div class="loaderStars">✦ ✧ ✦</div>
-        <div id="globalLoaderText" class="globalLoaderText">Спокойствие, только спокойствие! (идет анализ данных...)</div>
-      </div>
     </div>
 
     <script src="/static/neural.js"></script>
