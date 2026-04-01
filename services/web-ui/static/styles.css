@@ -34,6 +34,16 @@ body {
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .brandIcon { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,0.06); object-fit: cover; }
 .title { font-weight: 800; letter-spacing: 0.4px; font-size: 20px; }
+.links { display: flex; align-items: center; gap: 10px; }
+.links a, .hint a {
+  color: #8de9ff;
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(141,233,255,0.45);
+}
+.links a:hover, .hint a:hover {
+  color: #c7f4ff;
+  border-bottom-color: rgba(199,244,255,0.9);
+}
 .meta { display: flex; align-items: center; gap: 10px; }
 .pill { padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 12px; }
 
@@ -233,6 +243,7 @@ body[data-mode="letter"] .card {
 @media (max-width: 980px) {
   .grid { grid-template-columns: 1fr; }
   .topCard { min-height: auto; }
+  .links { width: 100%; }
   .meta { width: 100%; justify-content: flex-start; }
   .header { flex-wrap: wrap; }
   .hint { flex-wrap: wrap; }
