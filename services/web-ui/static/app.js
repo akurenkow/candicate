@@ -2,7 +2,6 @@ const byId = (id) => document.getElementById(id);
 
 const els = {
   sessionState: byId("sessionState"),
-  btnStart: byId("btnStart"),
   btnUpload: byId("btnUpload"),
   resumeFile: byId("resumeFile"),
   rawResume: byId("rawResume"),
@@ -45,6 +44,7 @@ const bff = () => (els.bffUrl.value.trim() || defaultBff).replace(/\/$/, "");
 let chatInFlight = false;
 let actionInFlight = false;
 let sessionActive = false;
+let resumeReady = false;
 let thinkingEl = null;
 let persistentThemeMode = "";
 
@@ -104,6 +104,7 @@ function popThinking() {
 
 function setChatLocked(locked) {
   chatInFlight = locked;
+  refreshUiState();
 }
 
 function setThemeMode(mode) {
@@ -115,10 +116,17 @@ function setThemeMode(mode) {
   document.body.setAttribute("data-mode", next);
 }
 
-function setAllButtonsDisabled(disabled) {
-  document.querySelectorAll("button").forEach((btn) => {
-    btn.disabled = !!disabled;
-  });
+function refreshUiState() {
+  const busy = chatInFlight || actionInFlight;
+  const canUseActions = resumeReady && !busy;
+
+  if (els.btnUpload) els.btnUpload.disabled = busy || resumeReady;
+  if (els.resumeFile) els.resumeFile.disabled = busy || resumeReady;
+  if (els.btnConvertRaw) els.btnConvertRaw.disabled = !canUseActions;
+  if (els.btnMatch) els.btnMatch.disabled = !canUseActions;
+  if (els.btnLetter) els.btnLetter.disabled = !canUseActions;
+  if (els.btnSend) els.btnSend.disabled = !canUseActions;
+  if (els.chatInput) els.chatInput.disabled = !canUseActions;
 }
 
 function setResumeLamp(stage) {
@@ -188,15 +196,10 @@ async function ensureSession() {
   }
 }
 
-els.btnStart.addEventListener("click", async () => {
-  await ensureSession();
-  setResumeLamp(sessionActive ? "ready" : "idle");
-});
-
 els.btnUpload.addEventListener("click", async () => {
   if (chatInFlight || actionInFlight) return;
   actionInFlight = true;
-  setAllButtonsDisabled(true);
+  refreshUiState();
   setResumeLamp("idle");
   setInlineLoader(els.resumeLoader, LOADER_TEXT.upload, true);
   try {
@@ -218,6 +221,7 @@ els.btnUpload.addEventListener("click", async () => {
       const st = await api(`/documents/tasks/${encodeURIComponent(jobId)}/status`);
       const status = String(st.status || "").toLowerCase();
       if (status === "completed") {
+        resumeReady = true;
         setResumeLamp("ready");
         setInlineLoader(els.resumeLoader, "", false);
         setActionOut("Резюме успешно загружено и проиндексировано.");
@@ -240,14 +244,15 @@ els.btnUpload.addEventListener("click", async () => {
     setActionOut(`Ошибка upload: ${e && e.message ? e.message : String(e)}`);
   } finally {
     actionInFlight = false;
-    setAllButtonsDisabled(false);
+    refreshUiState();
   }
 });
 
 els.btnConvertRaw.addEventListener("click", async () => {
   if (chatInFlight || actionInFlight) return;
+  if (!resumeReady) return;
   actionInFlight = true;
-  setAllButtonsDisabled(true);
+  refreshUiState();
   setInlineLoader(els.resumeLoader, LOADER_TEXT.convert, true);
   try {
     const raw = els.rawResume.value.trim();
@@ -265,19 +270,19 @@ els.btnConvertRaw.addEventListener("click", async () => {
     setActionOut(`Ошибка convert: ${e && e.message ? e.message : String(e)}`);
   } finally {
     actionInFlight = false;
-    setAllButtonsDisabled(false);
+    refreshUiState();
   }
 });
 
 els.btnMatch.addEventListener("click", async () => {
   if (actionInFlight || chatInFlight) return;
+  if (!resumeReady) return;
   actionInFlight = true;
-  setAllButtonsDisabled(true);
+  refreshUiState();
   setActionThinking("Думаю над match");
   setInlineLoader(els.vacancyLoader, LOADER_TEXT.match, true);
   setThemeMode("match");
   try {
-    await ensureSession();
     const vacancy = els.vacancyText.value.trim();
     if (!vacancy) throw new Error("Вставьте текст вакансии");
     const out = await api("/match-vacancy", {
@@ -294,18 +299,18 @@ els.btnMatch.addEventListener("click", async () => {
     setActionOut(`Ошибка match: ${e && e.message ? e.message : String(e)}`);
   } finally {
     actionInFlight = false;
-    setAllButtonsDisabled(false);
+    refreshUiState();
   }
 });
 
 els.btnLetter.addEventListener("click", async () => {
   if (actionInFlight || chatInFlight) return;
+  if (!resumeReady) return;
   actionInFlight = true;
-  setAllButtonsDisabled(true);
+  refreshUiState();
   setActionThinking("Думаю над cover-letter");
   setInlineLoader(els.vacancyLoader, LOADER_TEXT.letter, true);
   try {
-    await ensureSession();
     const vacancy = els.vacancyText.value.trim();
     if (!vacancy) throw new Error("Вставьте текст вакансии");
     const out = await api("/cover-letter", {
@@ -320,7 +325,7 @@ els.btnLetter.addEventListener("click", async () => {
     setActionOut(`Ошибка cover-letter: ${e && e.message ? e.message : String(e)}`);
   } finally {
     actionInFlight = false;
-    setAllButtonsDisabled(false);
+    refreshUiState();
   }
 });
 
@@ -336,13 +341,12 @@ async function pollMessage(messageId) {
 
 async function sendChat() {
   if (chatInFlight || actionInFlight) return;
+  if (!resumeReady) return;
   const q = els.chatInput.value.trim();
   if (!q) return;
-  setAllButtonsDisabled(true);
   setChatLocked(true);
   pushThinking();
   try {
-    await ensureSession();
     els.chatInput.value = "";
     pushMsg("user", q);
     const enq = await api("/chat", {
@@ -360,7 +364,6 @@ async function sendChat() {
     pushMsg("assistant", `Ошибка: ${e && e.message ? e.message : String(e)}`);
   } finally {
     setChatLocked(false);
-    setAllButtonsDisabled(false);
     els.chatInput.focus();
   }
 }
@@ -376,6 +379,8 @@ els.chatInput.addEventListener("keydown", (e) => {
 
 window.addEventListener("load", async () => {
   setActionOut("Здесь появится прокручиваемый результат match / cover-letter");
+  els.sessionState.textContent = "session: начнется при загрузке резюме";
   setResumeLamp("idle");
+  refreshUiState();
 });
 
