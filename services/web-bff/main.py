@@ -15,6 +15,7 @@ from uuid import uuid4
 import httpx
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from itsdangerous import BadSignature, URLSafeSerializer
 from pydantic import BaseModel, Field
 
@@ -174,12 +175,28 @@ class CoverLetterRequest(BaseModel):
 @app.post("/cover-letter")
 async def cover_letter(request: Request, body: CoverLetterRequest):
     owner_id = _require_owner_id(request)
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        r = await client.post(
-            f"{BASE_API_URL}/cover-letter",
-            json={"owner_id": owner_id, "vacancy_text": body.vacancy_text},
-        )
-    return Response(content=r.content, status_code=r.status_code, media_type=r.headers.get("content-type", "application/json"))
+    try:
+        async with httpx.AsyncClient(timeout=240.0) as client:
+            r = await client.post(
+                f"{BASE_API_URL}/cover-letter",
+                json={"owner_id": owner_id, "vacancy_text": body.vacancy_text},
+            )
+    except httpx.TimeoutException:
+        return JSONResponse(status_code=200, content={"owner_id": owner_id, "error": "cover_letter_timeout"})
+    except Exception:
+        return JSONResponse(status_code=200, content={"owner_id": owner_id, "error": "cover_letter_unavailable"})
+
+    if r.status_code == 200:
+        return Response(content=r.content, status_code=200, media_type=r.headers.get("content-type", "application/json"))
+
+    detail = "cover_letter_failed"
+    try:
+        payload = r.json()
+        detail = payload.get("detail") or payload.get("error") or detail
+    except Exception:
+        if r.text:
+            detail = r.text[:300]
+    return JSONResponse(status_code=200, content={"owner_id": owner_id, "error": str(detail)})
 
 
 class ResumeConvertRawRequest(BaseModel):

@@ -43,6 +43,7 @@ const bff = () => (els.bffUrl.value.trim() || defaultBff).replace(/\/$/, "");
 
 let chatInFlight = false;
 let thinkingEl = null;
+let actionInFlight = false;
 
 async function api(path, opts = {}) {
   const url = `${bff()}${path}`;
@@ -95,6 +96,21 @@ function setChatLocked(locked) {
   els.chatInput.disabled = locked;
 }
 
+function setActionLocked(locked) {
+  actionInFlight = locked;
+  els.btnMatch.disabled = locked;
+  els.btnLetter.disabled = locked;
+}
+
+function setActionThinking(label = "Думаю") {
+  els.vacancyOut.value = `${label}...`;
+}
+
+function setActionOut(text) {
+  els.vacancyOut.value = text;
+  els.vacancyOut.scrollTop = 0;
+}
+
 async function ensureSession() {
   try {
     const me = await api("/session/me");
@@ -119,14 +135,14 @@ els.btnUpload.addEventListener("click", async () => {
   fd.append("file", f);
   const out = await api("/documents/upload", { method: "POST", body: fd });
   els.jobId.value = out.job_id || "";
-  els.vacancyOut.textContent = JSON.stringify(out, null, 2);
+  setActionOut(JSON.stringify(out, null, 2));
 });
 
 els.btnPoll.addEventListener("click", async () => {
   const jobId = els.jobId.value.trim();
   if (!jobId) throw new Error("Введите job_id");
   const out = await api(`/documents/tasks/${encodeURIComponent(jobId)}/status`);
-  els.vacancyOut.textContent = JSON.stringify(out, null, 2);
+  setActionOut(JSON.stringify(out, null, 2));
 });
 
 els.btnConvertRaw.addEventListener("click", async () => {
@@ -138,31 +154,49 @@ els.btnConvertRaw.addEventListener("click", async () => {
     body: JSON.stringify({ raw_text: raw }),
   });
   els.structuredResume.value = out.structured_text || "";
-  els.vacancyOut.textContent = JSON.stringify(out, null, 2);
+  setActionOut(JSON.stringify(out, null, 2));
 });
 
 els.btnMatch.addEventListener("click", async () => {
+  if (actionInFlight) return;
   await ensureSession();
   const vacancy = els.vacancyText.value.trim();
   if (!vacancy) throw new Error("Вставьте текст вакансии");
-  const out = await api("/match-vacancy", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ vacancy_text: vacancy, summary: true, target_lang: "ru" }),
-  });
-  els.vacancyOut.textContent = JSON.stringify(out, null, 2);
+  setActionLocked(true);
+  setActionThinking("Думаю над match");
+  try {
+    const out = await api("/match-vacancy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vacancy_text: vacancy, summary: true, target_lang: "ru" }),
+    });
+    setActionOut(JSON.stringify(out, null, 2));
+  } catch (e) {
+    setActionOut(`Ошибка match: ${e && e.message ? e.message : String(e)}`);
+  } finally {
+    setActionLocked(false);
+  }
 });
 
 els.btnLetter.addEventListener("click", async () => {
+  if (actionInFlight) return;
   await ensureSession();
   const vacancy = els.vacancyText.value.trim();
   if (!vacancy) throw new Error("Вставьте текст вакансии");
-  const out = await api("/cover-letter", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ vacancy_text: vacancy }),
-  });
-  els.vacancyOut.textContent = (out.letter || out.error || JSON.stringify(out, null, 2));
+  setActionLocked(true);
+  setActionThinking("Думаю над cover-letter");
+  try {
+    const out = await api("/cover-letter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vacancy_text: vacancy }),
+    });
+    setActionOut(out.letter || out.error || JSON.stringify(out, null, 2));
+  } catch (e) {
+    setActionOut(`Ошибка cover-letter: ${e && e.message ? e.message : String(e)}`);
+  } finally {
+    setActionLocked(false);
+  }
 });
 
 async function pollMessage(messageId) {
@@ -214,6 +248,7 @@ els.chatInput.addEventListener("keydown", (e) => {
 });
 
 window.addEventListener("load", async () => {
+  setActionOut("Здесь появится прокручиваемый результат match / cover-letter");
   try {
     await ensureSession();
   } catch (e) {
